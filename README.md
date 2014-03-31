@@ -1,4 +1,4 @@
 altfire
 =======
 
-Alternative AngularJS bindings for Firebase
+Alternative AngularJS bindings for Firebase, based on ajoslin/angular-burn.
