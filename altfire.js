@@ -1,9 +1,19 @@
 angular.module('altfire', [])
 
+/**
+ * The main Firebase/Angular adapter service.
+ */
 .factory('fire', function($interpolate, $q, $parse, $timeout, orderByFilter) {
   var self = {};
   var root = null;
 
+  /**
+   * Sets the default root for all Firebase data paths that don't include a host. You probably
+   * want to set a root when your app initializes. Note that no distinction is made between
+   * relative and absolute paths -- all have the full root prepended if they lack a host.
+   * @param {string} rootUrl The root URL, usually something like 'https://foo.firebaseio.com' but
+   * can also include a path component.
+   */
   self.setDefaultRoot = function(rootUrl) {
     if (!angular.isString(rootUrl)) {
       rootUrl = rootUrl.toString();
@@ -67,10 +77,76 @@ angular.module('altfire', [])
     callback.apply(null, interpolatePaths(scope));
   }
 
+  /**
+   * Returns a Firebase reference for the given data path, interpolated with variables from the
+   * given scope (or other context object).
+   * @param  {Object} scope The scope to use for interpolation of the path.
+   * @param  {string} path The path to convert into a reference.
+   * @return {Firebase} The reference corresponding to the interpolated and root-prefixed path.
+   * Note that this reference will not update if the scope's variable values change.
+   */
   self.ref = function(scope, path) {
     return new Firebase(prefixRoot($interpolate(path)(scope)));
   };
 
+  /**
+   * Connects a single attribute to a value in the Firebase datastore.
+   * @param  {Object} args An object with the following attributes:
+   *    scope, name:  The destination object and the name of its attribute with which to connect the
+   *        Firebase data (i.e., scope[name]).  Both are required.  The scope will also be used for
+   *        interpolating the path unless a pathScope is provided.  If the scope is an Angular scope
+   *        then the connection will automatically be destroyed with the scope; otherwise, you're
+   *        responsible for calling destroy() on the returned handle yourself.
+   *    pathScope:  An optional object used for interpolating the data path.
+   *    bind, pull, once, noop:  The Firebase data path to connect to; exactly one of these
+   *        arguments must be specified.  The path will be interpolated using the pathScope (or
+   *        scope), and kept updated if that is an actual scope.  It will also be prefixed with the
+   *        default root if no host is specified.  The meaning of each argument is as follows:
+   *        bind: two-way binding where remote changes are reflected locally and vice-versa.
+   *        pull: one-way binding where remote changes are reflected locally and local changes get
+   *            overwritten.
+   *        once: one-way binding that grabs the remote value once then disconnects, but if the path
+   *            interpolation changes it will grab the value at the new path once too.
+   *        noop: no binding, just creates a handle that can be used to get a reference.
+   *    via, viaKeys, viaValues:  A Firebase path used for indirection, to find the keys of the
+   *        primary path that should be bound; at most one of these arguments can be specified.
+   *        When a via* connection is requested, the connection must be of 'bind' or 'pull' type,
+   *        and the primary path must contain a '#' symbol to indicate where the selected keys
+   *        should be substituted; this is typically at the end of the path, but doesn't have to be.
+   *        The meaning of each argument is as follows:
+   *        via: the via path is expected to point to a single string value, which is used as the
+   *            key in the primary path, and the resulting fetched value stored directly in
+   *            scope[name].
+   *        viaKeys: the via path is expected to point to an object, whose keys are used as the key
+   *            in the primary path.  The resulting fetched values are stored in scope[name][key]
+   *            for each key.
+   *        viaValues: the via path is expected to point to an object, whose values are used as the
+   *            key in the primary path.  The resulting fetched values are stored in
+   *            scope[name][key] for each key.
+   *    viaValueExtractor:  A function that extracts the desired primary key from a value.  Can only
+   *        be used when viaValues is specified.  Normally used when the collection of objects used
+   *        for indirection holds the desired pointer in a nested attribute.
+   *    query:  A function that, given a Firebase reference, applies any desired query limit to it.
+   *        This will be invoked automatically on either the primary reference, or on the via*
+   *        reference, as appropriate.
+   * @return {Object} A handle to the connection with the following methods:
+   *    destroy():  Destroys this connection (including all listeners) and deletes the destination
+   *        attribute.
+   *    isReady():  Returns whether the connection has processed the initial remote value.
+   *    ready():  Returns a promise that will be resolved (with no value) when the connection
+   *        becomes ready.
+   *    ref(...) or viaRef, viaKeysRef, viaValuesRef:  Returns a Firebase reference to the data
+   *        path.  If the connection is of via* type then a reference to the via path is returned
+   *        instead (using the appropriate method variant), and the main reference cannot be
+   *        obtained (as there are in fact many of them for viaKeys and viaValues connections).  If
+   *        any extra arguments are specified they are treated as a child path and suffixed to the
+   *        reference before it is returned.
+   *    via, viaKeys, viaValues:  If the connection is of via* type, the corresponding method
+   *        returns the current value selected by the via* path.
+   *    allowedKeys():  For viaKeys and viaValues connections, returns an object that has all the
+   *        keys that have been selected by the via* clause and will be dereferenced into the
+   *        attribute (even if the dereferencing fails).
+   */
   self.connectOne = function(args) {
     if (!args.name) {
       throw new Error('Must provide a name for the connection.');
@@ -163,6 +239,20 @@ angular.module('altfire', [])
     return handle;
   };
 
+  /**
+   * Connects multiple attributes to values in the Firebase datastore.  Works just like connectOne
+   * except that the same scope is specified for all the connections, and the name of each
+   * connection is its key in the map.
+   * @param  {Object} scope The scope to bind values into; either an Angular scope or any other
+   *    object, but if it's an object you'll have to destroy the connections yourself.
+   * @param  {Object} map The map of attribute names to their connection options.
+   * @return {Object} A map of the connection handles (like those from connectOne), with one handle
+   *    per item in the input map.  Also has two extra methods:
+   *    $allReady():  Returns a promise that resolves when all requested connections have been made
+   *        ready.  The resolve value will be a map of connection name to the bound value at the
+   *        moment the promise is resolved (particularly useful for 'once' connections).
+   *    $destroyAll():  Calls destroy() on all the connections in the map.
+   */
   self.connect = function(scope, map) {
     var handles = {};
     angular.forEach(map, function(args, name) {
@@ -193,6 +283,12 @@ angular.module('altfire', [])
     return handles;
   };
 
+  /**
+   * Converts a Firebase object to an array of its values, sorted by the values' keys.
+   * @param  {Object} o The Firebase object to convert; can be empty, null, or undefined.
+   * @return {Array} An array containing all the values from the given object.  Each of the values
+   *    is also augmented with a '$key' attribute that holds its original key.
+   */
   self.toArrayOrderedByKey = function(o) {
     var array = [];
     if (o) {
@@ -217,7 +313,7 @@ angular.module('altfire', [])
     //Resolved once initial value comes down
     var readyDeferred = $q.defer();
 
-    scope.$on && scope.$on('$destroy', destroy);
+    if (scope.$on) scope.$on('$destroy', destroy);
     self.destroy = destroy;
     self.isReady = false;
     self.ready = function() {
@@ -259,8 +355,8 @@ angular.module('altfire', [])
       } else if (ref) {
         firebaseUnbindRef([], scope[name]);
       }
-      unbindWatch && unbindWatch();
-      reporter && reporter.destroy();
+      if (unbindWatch) unbindWatch();
+      if (reporter) reporter.destroy();
       delete scope[name];
     }
 
@@ -296,7 +392,7 @@ angular.module('altfire', [])
           firebaseBindRef([], onRootValue);
         });
       } else if (filterFlavor === 'viaKeys' || filterFlavor === 'viaValues') {
-        scope[name] || (scope[name] = {});
+        scope[name] = scope[name] || {};
         addListener(filterRef, 'value', function(snap) {
           self.filterValue = snap.val();
           if (self.filterValue) {
@@ -332,7 +428,7 @@ angular.module('altfire', [])
         childRef.set(newValue, callback);
       }
       function callback(error) {
-        error && $rootScope.$emit('fire:error', self, {
+        if (error) $rootScope.$emit('fire:error', self, {
           path: path,
           value: newValue,
           error: error
@@ -370,7 +466,7 @@ angular.module('altfire', [])
         }
       } else if (!angular.isObject(value) || !angular.isObject(scope[name])) {
         scope[name] = value;
-        reporter && (reporter.savedScope[name] = angular.copy(value));
+        if (reporter) reporter.savedScope[name] = angular.copy(value);
       }
     }
 
@@ -379,15 +475,15 @@ angular.module('altfire', [])
     function onFilteredPropValue(key) {
       return function onValue(value) {
         if (!angular.isObject(value) || !angular.isObject(scope[name] && scope[name][key])) {
-          function update() {
+          var update = function() {
             if (angular.isUndefined(scope[name])) {
               // We got destroyed while waiting for the callback, ignore.
               return;
             }
             scope[name][key] = value;
-            reporter && (reporter.savedScope[name][key] = angular.copy(value));
+            if (reporter) reporter.savedScope[name][key] = angular.copy(value);
             setReady();
-          }
+          };
           if (scope.$evalAsync) {
             scope.$evalAsync(update);
           } else {
@@ -418,7 +514,7 @@ angular.module('altfire', [])
     }
 
     function firebaseBindRef(path, onValue) {
-      path || (path = []);
+      path = path || [];
       var watchRef = getRefFromPath(path);
       listen('child_added');
       listen('child_removed');
@@ -456,7 +552,7 @@ angular.module('altfire', [])
     }
 
     function firebaseUnbindRef(path, value) {
-      path || (path = []);
+      path = path || [];
       var childRef = getRefFromPath(path);
       //Unbind this ref, then if the value removed is an object, unbind anything watching
       //all of the object's child key/value pairs.
@@ -506,7 +602,7 @@ angular.module('altfire', [])
   }
 
   function set(scope, key, value) {
-    scope && (scope[key] = value);
+    if (scope) scope[key] = value;
   }
 
   function parsePath($parse, name, path) {
@@ -573,7 +669,7 @@ angular.module('altfire', [])
       compare(savedScope, object, name, [], FIRE_COMPARE_MAX_DEPTH);
     }
     function destroy() {
-      savedScope && (delete savedScope[name]);
+      if (savedScope) delete savedScope[name];
       savedScope = null;
     }
 
