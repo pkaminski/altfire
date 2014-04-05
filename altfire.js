@@ -3,7 +3,8 @@ angular.module('altfire', [])
 /**
  * The main Firebase/Angular adapter service.
  */
-.factory('fire', function($interpolate, $q, $parse, $timeout, orderByFilter) {
+.factory('fire', ['$interpolate', '$q', '$parse', '$timeout', 'orderByFilter',
+    function($interpolate, $q, $parse, $timeout, orderByFilter) {
   var self = {};
   var root = null;
 
@@ -108,8 +109,8 @@ angular.module('altfire', [])
    *        once: one-way binding that grabs the remote value once then disconnects, but if the path
    *            interpolation changes it will grab the value at the new path once too.
    *        noop: no binding, just creates a handle that can be used to get a reference.
-   *    via, viaKeys, viaValues:  A Firebase path used for indirection, to find the keys of the
-   *        primary path that should be bound; at most one of these arguments can be specified.
+   *    via, viaKeys, viaValues, viaIds:  A Firebase path used for indirection, to find the keys of
+   *        the primary path that should be bound; at most one of these arguments can be specified.
    *        When a via* connection is requested, the connection must be of 'bind' or 'pull' type,
    *        and the primary path must contain a '#' symbol to indicate where the selected keys
    *        should be substituted; this is typically at the end of the path, but doesn't have to be.
@@ -123,6 +124,8 @@ angular.module('altfire', [])
    *        viaValues: the via path is expected to point to an object, whose values are used as the
    *            key in the primary path.  The resulting fetched values are stored in
    *            scope[name][key] for each key.
+   *        viaIds: not actually a path, but rather an array of ids to use directly.  The array must
+   *            be constant as it is not watched for changes.
    *    viaValueExtractor:  A function that extracts the desired primary key from a value.  Can only
    *        be used when viaValues is specified.  Normally used when the collection of objects used
    *        for indirection holds the desired pointer in a nested attribute.
@@ -163,15 +166,19 @@ angular.module('altfire', [])
       }
     });
     var refName = 'ref', viaFlavor, viaPath;
-    angular.forEach(['via', 'viaKeys', 'viaValues'], function(flavor) {
+    angular.forEach(['via', 'viaKeys', 'viaValues', 'viaIds'], function(flavor) {
       if (flavor in args) {
         if (viaFlavor) {
           throw new Error(
-            'A connection can specify at most one of "via", "viaKeys" and "viaValues".');
+            'A connection can specify at most one of "via", "viaKeys", "viaValues", and "viaIds".');
         }
         viaFlavor = flavor;
-        viaPath = args[flavor];
-        refName = flavor + 'Ref';
+        if (flavor === 'viaIds') {
+          refName = null;
+        } else {
+          viaPath = args[flavor];
+          refName = flavor + 'Ref';
+        }
       }
     });
     if (viaFlavor && (connectionFlavor === 'once' || connectionFlavor === 'noop')) {
@@ -179,6 +186,9 @@ angular.module('altfire', [])
     }
     if (args.viaValueExtractor && viaFlavor !== 'viaValues') {
       throw new Error('Can only use "viaValueExtractor" with "viaValues".');
+    }
+    if (viaFlavor === 'viaIds' && args.query) {
+      throw new Error('Cannot combine viaIds with a query.');
     }
 
     function applyQuery(ref) {
@@ -214,11 +224,15 @@ angular.module('altfire', [])
           readyDeferred.resolve();
         });
       } else if (iPath && (!viaPath || iViaPath)) {
-        fire = iViaPath ?
-          Fire(
+        if (iViaPath) {
+          fire = Fire(
             args.scope, args.name, connectionFlavor, iPath, viaFlavor,
-            applyQuery(new Firebase(iViaPath)), args.viaValueExtractor) :
-          Fire(args.scope, args.name, connectionFlavor, applyQuery(new Firebase(iPath)));
+            applyQuery(new Firebase(iViaPath)), args.viaValueExtractor);
+        } else if (viaFlavor === 'viaIds') {
+          fire = Fire(args.scope, args.name, connectionFlavor, iPath, viaFlavor, args.viaIds);
+        } else {
+          fire = Fire(args.scope, args.name, connectionFlavor, applyQuery(new Firebase(iPath)));
+        }
       }
     });
     var handle = {
@@ -227,12 +241,14 @@ angular.module('altfire', [])
       ready: function() {return fire && fire.ready();},
       allowedKeys: function() {return fire && fire.allowedKeys;}
     };
-    handle[refName] = function() {
-      var ref = fire[refName];
-      if (ref.ref) ref = ref.ref();
-      if (arguments.length) ref = ref.child(Array.prototype.slice.call(arguments, 0).join('/'));
-      return ref;
-    };
+    if (refName) {
+      handle[refName] = function() {
+        var ref = fire[refName];
+        if (ref.ref) ref = ref.ref();
+        if (arguments.length) ref = ref.child(Array.prototype.slice.call(arguments, 0).join('/'));
+        return ref;
+      };
+    }
     if (viaFlavor) {
       handle[viaFlavor] = function() {return fire.filterValue;};
     }
@@ -409,6 +425,16 @@ angular.module('altfire', [])
         addListener(filterRef, 'child_removed', function(snap) {
           setWhitelistedKey(snap.name(), false);
         });
+      } else if (filterFlavor === 'viaIds') {
+        scope[name] = scope[name] || {};
+        self.filterValue = filterRef;
+        if (filterRef.length) {
+          for (var i = 0; i < filterRef.length; i++) {
+            setWhitelistedKey(filterRef[i], true);
+          }
+        } else {
+          setReady();
+        }
       }
     }
 
@@ -746,4 +772,4 @@ angular.module('altfire', [])
       }
     }
   }
-});
+}]);
