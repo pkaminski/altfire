@@ -1,0 +1,25 @@
+{
+  "name": "altfire",
+  "main": "altfire.js",
+  "version": "0.0.1",
+  "homepage": "https://github.com/pkaminski/altfire",
+  "authors": [
+    "Piotr Kaminsky"
+  ],
+  "description": "Alternative AngularJS bindings for Firebase",
+  "keywords": [
+    "angularjs",
+    "firebase"
+  ],
+  "license": "MIT",
+  "ignore": [
+    "**/.*",
+    "node_modules",
+    "bower_components",
+    "test",
+    "tests"
+  ],
+	"devDependencies": {
+    "closure-compiler": "https://closure-compiler.googlecode.com/files/compiler-20130603.zip"
+  }
+}
