@@ -58,8 +58,8 @@ angular.module('altfire', [])
     if (viaPath && path.search('#') === -1) {
       path += '/#';
     }
-    var pathInterpolator = angular.isString(path) ? $interpolate(path, true) : undefined;
-    var viaPathInterpolator = angular.isString(viaPath) ? $interpolate(viaPath, true) : undefined;
+    var pathInterpolator = angular.isString(path) ? $interpolate(path, false) : undefined;
+    var viaPathInterpolator = angular.isString(viaPath) ? $interpolate(viaPath, false) : undefined;
 
     function interpolatePaths(scope) {
       return [
@@ -68,7 +68,7 @@ angular.module('altfire', [])
       ];
     }
 
-    if (!noWatch && scope.$watch && (pathInterpolator || viaPathInterpolator)) {
+    if (!noWatch && scope.$watch) {
       scope.$watch(interpolatePaths, function(paths, oldPaths) {
         if (paths !== oldPaths) callback.apply(null, paths);
       }, true);
@@ -481,18 +481,25 @@ angular.module('altfire', [])
     //2) if top level was a primitive and now we are to object, reassign
     //3) if top level was object and now we are to primitive, reassign
     function onRootValue(value) {
-      if (!self.isReady) {
-        //First time value comes, merge it in and push it
-        scope[name] = fireMerge(value, scope[name]);
-        setReady();
-        if (connectionFlavor === 'bind') {
-          self.ready().then(function() {
-             onLocalChange([], scope[name]);
-          });
+      var update = function() {
+        if (!self.isReady) {
+          //First time value comes, merge it in and push it
+          scope[name] = fireMerge(value, scope[name]);
+          setReady();
+          if (connectionFlavor === 'bind') {
+            self.ready().then(function() {
+               onLocalChange([], scope[name]);
+            });
+          }
+        } else if (!angular.isObject(value) || !angular.isObject(scope[name])) {
+          scope[name] = value;
+          if (reporter) reporter.savedScope[name] = angular.copy(value);
         }
-      } else if (!angular.isObject(value) || !angular.isObject(scope[name])) {
-        scope[name] = value;
-        if (reporter) reporter.savedScope[name] = angular.copy(value);
+      }
+      if (scope.$evalAsync) {
+        scope.$evalAsync(update);
+      } else {
+        update();
       }
     }
 
