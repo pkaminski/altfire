@@ -5,6 +5,7 @@ angular.module('altfire', [])
  */
 .factory('fire', ['$interpolate', '$q', '$parse', '$timeout', 'orderByFilter',
     function($interpolate, $q, $parse, $timeout, orderByFilter) {
+  'use strict';
   var self = {};
   var root = null;
 

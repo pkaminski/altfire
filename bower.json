@@ -4,7 +4,7 @@
   "version": "0.0.1",
   "homepage": "https://github.com/pkaminski/altfire",
   "authors": [
-    "Piotr Kaminsky"
+    "Piotr Kaminski"
   ],
   "description": "Alternative AngularJS bindings for Firebase",
   "keywords": [
@@ -19,7 +19,9 @@
     "test",
     "tests"
   ],
-	"devDependencies": {
-    "closure-compiler": "https://closure-compiler.googlecode.com/files/compiler-20130603.zip"
+  "devDependencies": {
+    "closure-compiler": "https://closure-compiler.googlecode.com/files/compiler-20130603.zip",
+    "angular": "~1.2.16",
+    "angular-mocks": "~1.2.16"
   }
 }

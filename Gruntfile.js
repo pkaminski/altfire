@@ -1,6 +1,7 @@
 module.exports = function(grunt) {
 
   grunt.initConfig({
+    // Dist build
     closureCompiler: {
       options: {
         compilerFile: 'bower_components/closure-compiler/compiler.jar',
@@ -18,12 +19,19 @@ module.exports = function(grunt) {
         src: 'src/**/*.js',
         dest: 'dist/altfire.min.js'
       }
+    },
+    // Testing
+    karma: {
+      unit: {
+        configFile: 'test/karma.conf.js'
+      }
     }
   });
 
-  // Load the plugin that provides the "uglify" task.
+  // Load all available grunt plugins from package.json
   require('matchdep').filterDev('grunt-*').forEach(grunt.loadNpmTasks);  
   
-  // Default task(s).
+  // The tasks
   grunt.registerTask('default', ['closureCompiler']);
+  grunt.registerTask('test', ['karma']);
 };
