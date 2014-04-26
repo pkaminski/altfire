@@ -1,0 +1,34 @@
+{
+  "name": "altfire",
+  "version": "0.0.1",
+  "description": "Alternative AngularJS bindings for Firebase",
+  "main": "altfire.js",
+  "scripts": {
+    "setup": "rm -rf bower_components; rm -rf node_modules; npm install; bower install;"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git@github.com:pkaminski/altfire.git"
+  },
+  "keywords": [
+    "angularjs",
+    "firebase"
+  ],
+  "author": "Piotr Kaminski",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/pkaminski/altfire/issues"
+  },
+  "homepage": "https://github.com/pkaminski/altfire",
+  "devDependencies": {
+    "grunt": "~0.4.4",
+    "grunt-contrib-clean": "~0.5.0",
+    "grunt-closure-tools": "~0.9.6",
+    "matchdep": "~0.3.0",
+    "karma": "~0.12.9",
+    "karma-jasmine": "~0.1.5",
+    "karma-phantomjs-launcher": "~0.1.4",
+    "phantomjs": "~1.9.7-4",
+    "grunt-karma": "~0.8.2"
+  }
+}
