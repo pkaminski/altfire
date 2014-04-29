@@ -495,7 +495,7 @@ angular.module('altfire', [])
           scope[name] = value;
           if (reporter) reporter.savedScope[name] = angular.copy(value);
         }
-      }
+      };
       if (scope.$evalAsync) {
         scope.$evalAsync(update);
       } else {
@@ -508,28 +508,28 @@ angular.module('altfire', [])
     function onFilteredPropValue(key) {
       return function onValue(value) {
         if (!angular.isObject(value) || !angular.isObject(scope[name] && scope[name][key])) {
-          var update = function() {
-            if (angular.isUndefined(scope[name])) {
-              // We got destroyed while waiting for the callback, ignore.
-              return;
-            }
-            scope[name][key] = value;
-            if (reporter) reporter.savedScope[name][key] = angular.copy(value);
-            setReady();
-          };
-          if (scope.$evalAsync) {
-            scope.$evalAsync(update);
-          } else {
-            update();
+          if (angular.isUndefined(scope[name])) {
+            // We got destroyed while waiting for the callback, ignore.
+            return;
           }
+          scope[name][key] = value;
+          if (reporter) reporter.savedScope[name][key] = angular.copy(value);
+          if (!self.isReady && Object.keys(self.allowedKeys).every(function(key) {
+            return scope[name].hasOwnProperty(key);
+          })) {
+            setReady();
+          }
+          // Trigger just one digest after all filtered props have been initialized.  Afterwards,
+          // trigger one digest per change as normal.
+          if (self.isReady && scope.$evalAsync) scope.$evalAsync(function() {});
         }
       };
     }
 
     function setReady() {
       if (!self.isReady) {
+        self.isReady = true;
         $timeout(function() {
-          self.isReady = true;
           readyDeferred.resolve();
         });
       }
