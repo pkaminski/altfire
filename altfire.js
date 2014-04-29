@@ -7,6 +7,8 @@ angular.module('altfire', [])
     function($interpolate, $q, $parse, $timeout, orderByFilter) {
   var self = {};
   var root = null;
+  var pathCache = {};
+  var pathCacheMaxSize = 5000;
 
   /**
    * Sets the default root for all Firebase data paths that don't include a host. You probably
@@ -26,28 +28,31 @@ angular.module('altfire', [])
       rootUrl += '/';
     }
     root = rootUrl;
+    pathCache = {};
   };
 
   function prefixRoot(path, noWatch) {
+    if (path in pathCache) return pathCache[path];
+    // Simple eviction policy: if cache gets too large, wipe it and start from scratch.
+    if (Object.keys(pathCache).length >= pathCacheMaxSize) pathCache = {};
     if (angular.isString(path)) {
-      if (path.replace(/^https:\/\//, '').search('//') !== -1 ||
-          path.charAt(path.length - 1) === '/') {
+      var isFullPath = path.slice(0, 8) === 'https://';
+      if (path && ((isFullPath ? path.slice(8) : path).indexOf('//') !== -1 ||
+          path.charAt(path.length - 1) === '/' || path.charAt(0) === '/')) {
         try {
           throw new Error('Invalid path interpolation: ' + path);
         } catch(e) {
           if (noWatch) throw e;
           console.debug(e.stack.replace(/\n[^\n]*(altfire|angular(\.min)?)\.js[^\n]*$/gm, ''));
         }
+        pathCache[path] = null;
         return null;
       }
-      if (path.search(/^https?:\/\//) === -1) {
-        if (path && path.charAt(0) === '/') {
-          throw new Error('Path must not start with a "/", got: ' + path);
-        }
+      if (!isFullPath) {
         if (!root) {
           throw new Error('Relative path given and default root not specified.');
         }
-        path = root + path;
+        path = pathCache[path] = root + path;
       }
     }
     return path;
