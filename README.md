@@ -34,3 +34,28 @@ angular.module('myApp', ['altfire'])
   });
 });
 ```
+
+Creating a Minified Distribution Build
+--------------------------------------
+
+Ensure you have
+
+1. The dependencies installed (`npm run setup` if you do not)
+2. grunt-cli installed (`sudo npm install -g grunt-cli`)
+
+Then simply run
+
+	grunt
+
+
+Running Tests
+-------------
+
+Assuming you already have grunt-cli installed (if not, install with `sudo npm install -g grunt-cli`)
+
+Run `npm run setup` to grab all the dependencies  
+
+Then run
+	
+	grunt test
+
