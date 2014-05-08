@@ -76,12 +76,18 @@ angular.module('altfire', [])
 
     if (!noWatch && scope.$watch) {
       scope.$watch(interpolatePaths, function(paths, oldPaths) {
-        if (paths !== oldPaths) callback.apply(null, paths);
+        if (initialPaths ? !angular.equals(paths, initialPaths) : paths !== oldPaths) {
+          initialPaths = null;
+          callback.apply(null, paths);
+        }
       }, true);
     }
     // Even if watching, issue the first callback synchronously so the handle will be valid
-    // immediately.
-    callback.apply(null, interpolatePaths(scope));
+    // immediately.  But be careful -- it's possible for the interpolated paths to change between
+    // now and the first watcher callback, in which case we'd miss an update unless we compare
+    // against the paths we actually computed here.
+    var initialPaths = interpolatePaths(scope);
+    callback.apply(null, initialPaths);
   }
 
   /**
