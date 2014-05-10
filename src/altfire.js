@@ -75,8 +75,8 @@ angular.module('altfire', [])
     }
 
     if (!noWatch && scope.$watch) {
-      scope.$watch(interpolatePaths, function(paths, oldPaths) {
-        if (initialPaths ? !angular.equals(paths, initialPaths) : paths !== oldPaths) {
+      scope.$watch(interpolatePaths, function(paths) {
+        if (!(initialPaths && angular.equals(paths, initialPaths))) {
           initialPaths = null;
           callback.apply(null, paths);
         }
