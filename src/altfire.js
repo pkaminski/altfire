@@ -10,6 +10,7 @@ angular.module('altfire', [])
   var root = null;
   var pathCache = {};
   var pathCacheMaxSize = 5000;
+  var FIRE_COMPARE_MAX_DEPTH = 6;
 
   /**
    * Sets the default root for all Firebase data paths that don't include a host. You probably
@@ -704,8 +705,6 @@ angular.module('altfire', [])
     }
   }
 
-  var FIRE_COMPARE_MAX_DEPTH = 6;
-
   function makeObjectReporter(object, name, callback) {
     var savedScope = {};
     savedScope[name] = angular.copy(object[name]);
@@ -760,6 +759,7 @@ angular.module('altfire', [])
         }
 
         //If old array is bigger, report deletion
+        var i, ii;
         if (oldValue.length > newValue.length) {
           for (i=newValue.length,ii=oldValue.length; i<ii; i++) {
             reportChange(path.concat(key, i), null);
@@ -767,7 +767,7 @@ angular.module('altfire', [])
         }
         oldValue.length = newValue.length;
         //copy the items to oldValue and look for changes
-        for (var i=0, ii=newValue.length; i<ii; i++) {
+        for (i=0, ii=newValue.length; i<ii; i++) {
           compare(oldValue, newValue, i, path.concat(key), depth);
         }
       } else {
