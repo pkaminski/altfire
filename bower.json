@@ -1,7 +1,7 @@
 {
   "name": "altfire",
   "main": "src/altfire.js",
-  "version": "0.0.3",
+  "version": "0.0.4",
   "homepage": "https://github.com/pkaminski/altfire",
   "authors": [
     "Piotr Kaminski"
@@ -20,7 +20,8 @@
     "tests"
   ],
   "dependencies": {
-    "angular": "~1.2.16"
+    "angular": "~1.2.16",
+    "firebase": "~1.0.15"
   },
   "devDependencies": {
     "closure-compiler": "https://closure-compiler.googlecode.com/files/compiler-20130603.zip",
