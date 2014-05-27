@@ -315,15 +315,13 @@ angular.module('altfire', [])
   /**
    * Converts a Firebase object to an array of its values, sorted by the values' keys.
    * @param  {Object} o The Firebase object to convert; can be empty, null, or undefined.
-   * @return {Array} An array containing all the values from the given object.  Each of the values
-   *    is also augmented with a '$key' attribute that holds its original key.
+   * @return {Array} An array containing all the values from the given object.
    */
   self.toArrayOrderedByKey = function(o) {
     var array = [];
     if (o) {
       angular.forEach(o, function(value, key) {
-        if (angular.isObject(value)) {
-          value.$key = key;
+        if (angular.isObject(value) && value.$key) {
           array.push(value);
         }
       });
@@ -409,6 +407,24 @@ angular.module('altfire', [])
       delete listeners[target.toString()];
     }
 
+    function normalizeSnapshotValue(value) {
+      if (angular.isArray(value)) {
+        var normalValue = {};
+        angular.forEach(value, function(item, key) {
+          if (!(item === null || angular.isUndefined(item))) {
+            normalValue[key] = item;
+          }
+        });
+        value = normalValue;
+      }
+      if (angular.isObject(value)) {
+        angular.forEach(value, function(item, key) {
+          value[key] = normalizeSnapshotValue(item);
+        });
+      }
+      return value;
+    }
+
     function setupFilterRef() {
       if (filterFlavor === 'via') {
         addListener(filterRef, 'value', function(snap) {
@@ -417,13 +433,13 @@ angular.module('altfire', [])
             delete scope[name];
           }
           self.filterValue = snap.val();
-          ref = new Firebase(filterPath.replace('#', snap.val()));
+          ref = new Firebase(filterPath.replace('#', self.filterValue));
           firebaseBindRef([], onRootValue);
         });
       } else if (filterFlavor === 'viaKeys' || filterFlavor === 'viaValues') {
         scope[name] = scope[name] || {};
         addListener(filterRef, 'value', function(snap) {
-          self.filterValue = snap.val();
+          self.filterValue = normalizeSnapshotValue(snap.val());
           if (self.filterValue) {
             angular.forEach(self.filterValue, function(value, key) {
               setWhitelistedKey(
@@ -571,7 +587,11 @@ angular.module('altfire', [])
       function listen(type) {
         addListener(watchRef, type, function(snap) {
           var key = snap.name();
-          var value = snap.val();
+          var value = normalizeSnapshotValue(snap.val());
+          if (angular.isObject(value)) {
+            value.$key = snap.name();
+            if (snap.getPriority() !== null) value['.priority'] = snap.getPriority();
+          }
           switch(type) {
             case 'child_added':
               // For objects, watch each child.
