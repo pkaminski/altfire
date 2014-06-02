@@ -1,13 +1,19 @@
-describe('The fire service', function () {
+describe('The fire service', function() {
   'use strict';
 
-  beforeEach(function () {
+  var fire;
+
+  beforeEach(function() {
     module('altfire');
   });
 
-  it('should find the altfire module and run a trivial test successfully',
-    inject(function (fire) {
-      expect(fire).toBeTruthy();
-    }
-  ));
+  beforeEach(inject(function(_fire_) {
+    fire = _fire_;
+    fire.setDefaultRoot('https://altfire-test.firebaseio.com/');
+  }));
+
+  it('should find the altfire module and run a trivial test successfully', function() {
+    expect(fire).toBeTruthy();
+  });
+
 });

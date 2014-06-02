@@ -478,16 +478,9 @@ angular.module('altfire', [])
 
       // Update objects instead of just setting (not sure why, angularFire does this so we do too)
       if (angular.isObject(newValue) && !angular.isArray(newValue)) {
-        childRef.update(newValue, callback);
+        childRef.update(newValue);
       } else {
-        childRef.set(newValue, callback);
-      }
-      function callback(error) {
-        if (error) $rootScope.$emit('fire:error', self, {
-          path: path,
-          value: newValue,
-          error: error
-        });
+        childRef.set(newValue);
       }
     }
 
@@ -812,3 +805,81 @@ angular.module('altfire', [])
     }
   }
 }]);
+
+(function() {
+  Firebase.IGNORE_ERROR = {};  // unique marker object
+  var errorCallbacks = [];
+  var interceptInPlace = false;
+
+  /**
+   * Registers a global callback that will be invoked whenever any Firebase API indicates that an
+   * error occurred, unless your onComplete function for that call returns IGNORE_ERROR.  Errors
+   * that occur on calls made before the first callback is registered will not be captured.
+   * @param  {Function} callback The function to call back when an error occurs.  It will be passed
+   *     the Firebase Error, the reference (or query or onDisconnect instance), and the method name
+   *     as arguments.
+   * @return {Function} The callback function.
+   */
+  Firebase.onError = function(callback) {
+    interceptErrorCallbacks();
+    errorCallbacks.push(callback);
+    return callback;
+  };
+
+  /**
+   * Unregisters a global error callback.
+   * @param  {Function} callback A previously registered callback.
+   */
+  Firebase.offError = function(callback) {
+    var k = errorCallbacks.indexOf(callback);
+    if (k !== -1) errorCallbacks.splice(k, 1);
+  };
+
+  function wrapOnComplete(target, methods) {
+    angular.forEach(methods, function(onCompleteArgIndex, methodName) {
+      var wrappedMethod = target[methodName];
+      target[methodName] = function() {
+        var onComplete = arguments[onCompleteArgIndex] || angular.noop;
+        var args = Array.prototype.slice.call(arguments);
+        var ref = this;
+        args[onCompleteArgIndex] = function(error) {
+          var onCompleteCallbackResult = onComplete.apply(this, arguments);
+          if (error && onCompleteCallbackResult !== Firebase.IGNORE_ERROR) {
+            angular.forEach(errorCallbacks, function(callback) {
+              callback(error, ref, methodName);
+            });
+          }
+        };
+        return wrappedMethod.apply(this, args);
+      };
+    });
+    return target;
+  }
+
+  function wrapQuery(query) {
+    wrapOnComplete(query, {on: 2, once: 2});
+    angular.forEach(['limit', 'startAt', 'endAt'], function(method) {
+      var wrappedMethod = query[method];
+      query[method] = function() {
+        return wrapQuery(wrappedMethod.apply(this, arguments));
+      };
+    });
+    return query;
+  }
+
+  function interceptErrorCallbacks() {
+    if (interceptInPlace) return;
+    wrapOnComplete(Firebase.prototype, {
+      auth: 1, set: 1, update: 1, setWithPriority: 2, setPriority: 1, transaction: 1
+      // 'remove' and 'push' delegate to 'set'; 'on' and 'once' will be wrapped by wrapQuery below
+    });
+    var onDisconnect = Firebase.prototype.onDisconnect;
+    Firebase.prototype.onDisconnect = function() {
+      return wrapOnComplete(onDisconnect.apply(this, arguments), {
+        set: 1, setWithPriority: 2, update: 1, remove: 0, cancel: 0
+      });
+    };
+    wrapQuery(Firebase.prototype);
+    interceptInPlace = true;
+  }
+})();

@@ -26,7 +26,7 @@
     "grunt-closure-tools": "~0.9.6",
     "matchdep": "~0.3.0",
     "karma": "~0.12.9",
-    "karma-jasmine": "~0.1.5",
+    "karma-jasmine": "~0.2.0",
     "karma-phantomjs-launcher": "~0.1.4",
     "phantomjs": "~1.9.7-4",
     "grunt-karma": "~0.8.2"

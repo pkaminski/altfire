@@ -10,10 +10,10 @@ Alternative AngularJS bindings for Firebase, based on [ajoslin/angular-burn](git
 - **Scope independence.**  All features (two-way binding, one-way binding, interpolation, lifecycle management, etc.) work both within controller scopes and outside of them (e.g., in services).  (AngularFire will only do two-way binding with scopes, and one-way binding outside of them.)
 - **API passthrough.**  Rather than trying to completely wrap the Firebase API, you can easily retrieve a full Firebase reference and manipulate it directly.
 - **Array normalization.**  Firebase has a misguided heuristic where it will sometimes convert an object with integer keys into an array.  This can cause some very confusing bugs, so altfire makes sure you're always dealing with objects.
+- **Global error callbacks.**  You can register callbacks to be notified when any Firebase operation reports an error.  This is useful when your app has no error recovery procedure beyond asking the user to reload the page (which is not a terrible approach, since Firebase is pretty reliable!).
 
 There are many things still missing (some of which I'm working on), so I don't recommend using it in production yet:
-- No tests!  (But I'll start putting those in.)
-- No support for priorities.
+- Few tests.  (But I've started putting those in.)
 - No matching authentication service.
 - Minimal documentation (in the source code).
 
