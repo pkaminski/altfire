@@ -3,8 +3,8 @@ angular.module('altfire', [])
 /**
  * The main Firebase/Angular adapter service.
  */
-.factory('fire', ['$interpolate', '$q', '$parse', '$timeout', 'orderByFilter',
-    function($interpolate, $q, $parse, $timeout, orderByFilter) {
+.factory('fire', ['$interpolate', '$q', '$parse', '$timeout', '$rootScope', 'orderByFilter',
+    function($interpolate, $q, $parse, $timeout, $rootScope, orderByFilter) {
   'use strict';
   var self = {};
   var root = null;
@@ -361,11 +361,8 @@ angular.module('altfire', [])
 
     var reporter, unbindWatch;
     if (connectionFlavor === 'bind') {
-      if (!scope.$watch) {
-        throw new Error('Can only bind to Angular scopes.');
-      }
       reporter = makeObjectReporter(scope, name, onLocalChange);
-      unbindWatch = scope.$watch(reporter.compare, angular.noop);
+      unbindWatch = $rootScope.$watch(reporter.compare, angular.noop);
     }
 
     return self;
@@ -503,7 +500,7 @@ angular.module('altfire', [])
     //2) if top level was a primitive and now we are to object, reassign
     //3) if top level was object and now we are to primitive, reassign
     function onRootValue(value) {
-      var update = function() {
+      $rootScope.$evalAsync(function() {
         if (!self.isReady) {
           //First time value comes, merge it in and push it
           scope[name] = fireMerge(value, scope[name]);
@@ -517,12 +514,7 @@ angular.module('altfire', [])
           scope[name] = value;
           if (reporter) reporter.savedScope[name] = angular.copy(value);
         }
-      };
-      if (scope.$evalAsync) {
-        scope.$evalAsync(update);
-      } else {
-        update();
-      }
+      });
     }
 
     //listen to value for each filtered key. same rules as top level,
@@ -543,7 +535,7 @@ angular.module('altfire', [])
           }
           // Trigger just one digest after all filtered props have been initialized.  Afterwards,
           // trigger one digest per change as normal.
-          if (self.isReady && scope.$evalAsync) scope.$evalAsync(function() {});
+          if (self.isReady) $rootScope.$evalAsync(function() {});
         }
       };
     }
@@ -628,7 +620,7 @@ angular.module('altfire', [])
     }
 
     function invokeChange(type, path, key, value, remember) {
-      function update() {
+      $rootScope.$evalAsync(function() {
         var parsed = parsePath($parse, name, path);
         var changeScope;
         switch(type) {
@@ -643,12 +635,7 @@ angular.module('altfire', [])
             if (remember && reporter)
               set(parsed(reporter.savedScope), key, angular.copy(value));
         }
-      }
-      if (scope.$evalAsync) {
-        scope.$evalAsync(update);
-      } else {
-        update();
-      }
+      });
     }
   }
 
