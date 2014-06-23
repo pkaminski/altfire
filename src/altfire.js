@@ -92,9 +92,28 @@ angular.module('altfire', [])
     if (rootUrl.charAt(rootUrl.length - 1) !== '/') {
       rootUrl += '/';
     }
+    connectServerTimeOffset(rootUrl, root);
     root = rootUrl;
     pathCache = {};
     constructorTable = null;
+  };
+
+  var serverTimeOffset = 0;
+
+  function connectServerTimeOffset(newRoot, oldRoot) {
+    function getTimeOffsetRef(root) {
+      return new Firebase(root.slice(0, root.indexOf('/', 8) + 1) + '.info/serverTimeOffset');
+    }
+    if (oldRoot) getTimeOffsetRef(oldRoot).off('value', updateServerTimeOffset);
+    if (newRoot) getTimeOffsetRef(newRoot).on('value', updateServerTimeOffset);
+  }
+
+  function updateServerTimeOffset(snap) {
+    serverTimeOffset = snap.val();
+  }
+
+  self.getDefaultServerTimestamp = function() {
+    return new Date().getTime() + serverTimeOffset;
   };
 
   function prefixRoot(path, noWatch) {
