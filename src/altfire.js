@@ -3,14 +3,77 @@ angular.module('altfire', [])
 /**
  * The main Firebase/Angular adapter service.
  */
-.factory('fire', ['$interpolate', '$q', '$parse', '$timeout', '$rootScope', 'orderByFilter',
-    function($interpolate, $q, $parse, $timeout, $rootScope, orderByFilter) {
+.factory('fire', ['$interpolate', '$q', '$timeout', '$rootScope', 'orderByFilter', 'fireHelpers',
+    function($interpolate, $q, $timeout, $rootScope, orderByFilter, fireHelpers) {
   'use strict';
   var self = {};
   var root = null;
+  var defaultConstructorMap = {};
+  var constructorTable = null;
   var pathCache = {};
   var pathCacheMaxSize = 5000;
-  var FIRE_COMPARE_MAX_DEPTH = 6;
+
+  self.setDefaultConstructorMap = function(constructorMap) {
+    defaultConstructorMap = angular.copy(constructorMap);
+    constructorTable = null;
+  };
+
+  var getConstructorTable = function() {
+    if (!constructorTable) {
+      constructorTable = [];
+      angular.forEach(defaultConstructorMap, function(constructor, path) {
+        var pathVariables = [];
+        var pathTemplate = prefixRoot(path, true).replace(/\b\$[^\/]+/g, function(match) {
+          pathVariables.push(match);
+          return '([^/]+)';
+        });
+        constructorTable.push({
+          constructor: constructor,
+          variables: pathVariables,
+          regex: new RegExp('^' + pathTemplate.replace(/[$-.?[-^{|}]/g, '\\$&') + '$')
+        });
+      });
+    }
+    return constructorTable;
+  };
+
+  var createObject = function(path) {
+    var table = getConstructorTable();
+    for (var i = 0; i < table.length; i++) {
+      var descriptor = table[i];
+      descriptor.regex.lastIndex = 0;
+      var match = descriptor.regex.exec(path);
+      if (match) {
+        var o = new descriptor.constructor();
+        for (var j = 0; j < descriptor.variables.length; j++) {
+          o[descriptor.variables[j]] = match[j + 1];
+        }
+        return o;
+      }
+    }
+  };
+
+  function normalizeSnapshotValue(snap) {
+    var value = normalizeSnapshotValueHelper(snap.ref().toString(), snap.val());
+    if (snap.hasChildren() && snap.getPriority() !== null) {
+      value['.priority'] = snap.getPriority();
+    }
+    return value;
+  }
+
+  function normalizeSnapshotValueHelper(path, value) {
+    var normalValue;
+    if (angular.isObject(value)) normalValue = createObject(path) || value;
+    else if (angular.isArray(value)) normalValue = createObject(path) || {};
+    if (normalValue) {
+      angular.forEach(value, function(item, key) {
+        if (!(item === null || angular.isUndefined(item))) {
+          normalValue[key] = normalizeSnapshotValueHelper(path + '/' + key, item);
+        }
+      });
+    }
+    return normalValue || value;
+  }
 
   /**
    * Sets the default root for all Firebase data paths that don't include a host. You probably
@@ -31,6 +94,7 @@ angular.module('altfire', [])
     }
     root = rootUrl;
     pathCache = {};
+    constructorTable = null;
   };
 
   function prefixRoot(path, noWatch) {
@@ -232,7 +296,7 @@ angular.module('altfire', [])
         fire[refName] = applyQuery(new Firebase(iPath));
         fire[refName].once('value', function(snap) {
           if (fire !== myFire) return;  // path binding changed while we were getting the value
-          args.scope[args.name] = snap.val();
+          args.scope[args.name] = normalizeSnapshotValue(snap);
           fire.isReady = true;
           readyDeferred.resolve();
         });
@@ -313,7 +377,8 @@ angular.module('altfire', [])
   };
 
   /**
-   * Converts a Firebase object to an array of its values, sorted by the values' keys.
+   * Converts a Firebase object to an array of its values, sorted by the values' keys.  Adds a $key
+   * property to each object as a side-effect.
    * @param  {Object} o The Firebase object to convert; can be empty, null, or undefined.
    * @return {Array} An array containing all the values from the given object.
    */
@@ -321,7 +386,8 @@ angular.module('altfire', [])
     var array = [];
     if (o) {
       angular.forEach(o, function(value, key) {
-        if (angular.isObject(value) && value.$key) {
+        if (angular.isObject(value)) {
+          value.$key = key;
           array.push(value);
         }
       });
@@ -361,7 +427,7 @@ angular.module('altfire', [])
 
     var reporter, unbindWatch;
     if (connectionFlavor === 'bind') {
-      reporter = makeObjectReporter(scope, name, onLocalChange);
+      reporter = fireHelpers.makeObjectReporter(scope, name, onLocalChange);
       unbindWatch = $rootScope.$watch(reporter.compare, angular.noop);
     }
 
@@ -404,24 +470,6 @@ angular.module('altfire', [])
       delete listeners[target.toString()];
     }
 
-    function normalizeSnapshotValue(value) {
-      if (angular.isArray(value)) {
-        var normalValue = {};
-        angular.forEach(value, function(item, key) {
-          if (!(item === null || angular.isUndefined(item))) {
-            normalValue[key] = item;
-          }
-        });
-        value = normalValue;
-      }
-      if (angular.isObject(value)) {
-        angular.forEach(value, function(item, key) {
-          value[key] = normalizeSnapshotValue(item);
-        });
-      }
-      return value;
-    }
-
     function setupFilterRef() {
       if (filterFlavor === 'via') {
         addListener(filterRef, 'value', function(snap) {
@@ -429,18 +477,24 @@ angular.module('altfire', [])
             firebaseUnbindRef([], scope[name]);
             delete scope[name];
           }
-          self.filterValue = snap.val();
+          if (snap.hasChildren()) {
+            throw new Error(
+              'via value of ' + filterRef + ' must not be an object, ignoring: ' + snap.val());
+          }
+          self.filterValue = snap.val();  // it's primitive
           ref = new Firebase(filterPath.replace('#', self.filterValue));
           firebaseBindRef([], onRootValue);
         });
       } else if (filterFlavor === 'viaKeys' || filterFlavor === 'viaValues') {
         scope[name] = scope[name] || {};
         addListener(filterRef, 'value', function(snap) {
-          self.filterValue = normalizeSnapshotValue(snap.val());
+          self.filterValue = normalizeSnapshotValue(snap);
           if (self.filterValue) {
             angular.forEach(self.filterValue, function(value, key) {
-              setWhitelistedKey(
-                filterFlavor === 'viaKeys' ? key : filterValueExtractor(value), true);
+              if (key.charAt(0) !== '$') {
+                setWhitelistedKey(
+                  filterFlavor === 'viaKeys' ? key : filterValueExtractor(value), true);
+              }
             });
           } else {
             // If the filter ref has no keys in it, then we have no keys allowed, and just set ready
@@ -471,7 +525,7 @@ angular.module('altfire', [])
       }
 
       var childRef = getRefFromPath(path);
-      newValue = fireCopy(newValue);
+      newValue = fireHelpers.fireCopy(newValue);
 
       // Update objects instead of just setting (not sure why, angularFire does this so we do too)
       if (angular.isObject(newValue) && !angular.isArray(newValue)) {
@@ -488,7 +542,7 @@ angular.module('altfire', [])
         firebaseBindRef([key], onFilteredPropValue(key));
       } else {
         var value = scope[name] && scope[name][key];
-        invokeChange('child_removed', [], key, value, true);
+        invokeChange('child_removed', [], key);
         firebaseUnbindRef([key], value);
         delete self.allowedKeys[key];
       }
@@ -503,7 +557,7 @@ angular.module('altfire', [])
       $rootScope.$evalAsync(function() {
         if (!self.isReady) {
           //First time value comes, merge it in and push it
-          scope[name] = fireMerge(value, scope[name]);
+          scope[name] = fireHelpers.fireMerge(value, scope[name]);
           setReady();
           if (connectionFlavor === 'bind') {
             self.ready().then(function() {
@@ -563,41 +617,28 @@ angular.module('altfire', [])
     function firebaseBindRef(path, onValue) {
       path = path || [];
       var watchRef = getRefFromPath(path);
-      listen('child_added');
-      listen('child_removed');
-      listen('child_changed');
+
+      addListener(watchRef, 'child_added', function(snap) {
+        var value = normalizeSnapshotValue(snap);
+        // For objects, watch each child.
+        if (snap.hasChildren()) firebaseBindRef(path.concat(snap.name()));
+        invokeChange('child_added', path, snap.name(), value);
+      });
+
+      addListener(watchRef, 'child_removed', function(snap) {
+        firebaseUnbindRef(path.concat(snap.name()), normalizeSnapshotValue(snap));
+        invokeChange('child_removed', path, snap.name());
+      });
+
+      addListener(watchRef, 'child_changed', function(snap) {
+        // Only call changes at the leaves, otherwise ignore.  Use raw snap.val() here because the
+        // value is guaranteed to be primitive or null.
+        if (!snap.hasChildren()) invokeChange('child_changed', path, snap.name(), snap.val());
+      });
+
       if (onValue) {
-        listen('value');
-      }
-      function listen(type) {
-        addListener(watchRef, type, function(snap) {
-          var key = snap.name();
-          var value = normalizeSnapshotValue(snap.val());
-          if (angular.isObject(value)) {
-            value.$key = snap.name();
-            if (snap.getPriority() !== null) value['.priority'] = snap.getPriority();
-          }
-          switch(type) {
-            case 'child_added':
-              // For objects, watch each child.
-              if (angular.isObject(value)) {
-                firebaseBindRef(path.concat(key));
-              }
-              invokeChange(type, path, key, value, true);
-              break;
-            case 'child_changed':
-              // Only call changes at the leaf, otherwise ignore.
-              if (!angular.isObject(value)) {
-                invokeChange(type, path, key, value, true);
-              }
-              break;
-            case 'child_removed':
-              firebaseUnbindRef(path.concat(key), value);
-              invokeChange(type, path, key, value, true);
-              break;
-            case 'value':
-              (onValue || angular.noop)(value);
-          }
+        addListener(watchRef, 'value', function(snap) {
+          onValue(normalizeSnapshotValue(snap));
         });
       }
     }
@@ -605,10 +646,10 @@ angular.module('altfire', [])
     function firebaseUnbindRef(path, value) {
       path = path || [];
       var childRef = getRefFromPath(path);
-      //Unbind this ref, then if the value removed is an object, unbind anything watching
-      //all of the object's child key/value pairs.
-      //Eg if we remove an object { a: 1, b: { c: { d: 'e' } } }, it should call .off()
-      //on the parent, a/b, a/b, and a/b/c
+      // Unbind this ref, then if the value removed is an object, unbind anything watching
+      // all of the object's child key/value pairs.
+      // Eg if we remove an object { a: 1, b: { c: { d: 'e' } } }, it should call .off()
+      // on the parent, a/b, a/b, and a/b/c
       if (angular.isObject(value)) {
         angular.forEach(value, function(childValue, childKey) {
           if (!angular.isString(childKey) || childKey.charAt(0) !== '$') {
@@ -619,62 +660,63 @@ angular.module('altfire', [])
       removeListeners(childRef);
     }
 
-    function invokeChange(type, path, key, value, remember) {
+    function invokeChange(type, path, key, value) {
       $rootScope.$evalAsync(function() {
-        var parsed = parsePath($parse, name, path);
+        var parsed = fireHelpers.parsePath(name, path);
         var changeScope;
         switch(type) {
           case 'child_removed':
-            remove(parsed(scope), key, value);
-            if (remember && reporter)
-              remove(parsed(reporter.savedScope), key, angular.copy(value));
+            fireHelpers.remove(parsed(scope), key, value);
+            if (reporter) fireHelpers.remove(parsed(reporter.savedScope), key);
             break;
           case 'child_added':
           case 'child_changed':
-            set(parsed(scope), key, value);
-            if (remember && reporter)
-              set(parsed(reporter.savedScope), key, angular.copy(value));
+            fireHelpers.set(parsed(scope), key, value);
+            if (reporter) fireHelpers.set(parsed(reporter.savedScope), key, angular.copy(value));
         }
       });
     }
   }
+}])
 
-  function remove(scope, key, value) {
+
+.factory('fireHelpers', [function() {
+  var self = {};
+
+  var FIRE_COMPARE_MAX_DEPTH = 6;
+
+  self.remove = function(scope, key) {
     if (angular.isArray(scope)) {
       scope.splice(key, 1);
     }  else if (scope) {
       delete scope[key];
     }
-  }
+  };
 
-  function set(scope, key, value) {
+  self.set = function(scope, key, value) {
     if (scope) scope[key] = value;
-  }
+  };
 
-  function parsePath($parse, name, path) {
-    //turn ['key with spaces',  '123bar'] into 'name["key with spaces"]["123bar"]'
-    var expr = name;
-    for (var i=0, ii=path.length; i<ii; i++) {
-      if (angular.isNumber(path[i])) {
-        expr += '[' + path[i] + ']';
-      } else {
-        //We're sure to escape keys with quotes in them,
-        //so eg ['quote"key"'] turns into 'scope["quote\"key]'
-        expr += '["' + path[i].replace(/"/g, '\\"') + '"]';
+  self.parsePath = function(name, path) {
+    return function(scope) {
+      var value = scope[name];
+      for (var i = 0, ii = path.length; i < ii; i++) {
+        if (angular.isUndefined(value)) return;
+        value = value[path[i]];
       }
-    }
-    return $parse(expr);
-  }
+      return value;
+    };
+  };
 
-  //fireCopy: copy a value and remove $-prefixed attrs
-  function fireCopy(value) {
-    //Do nothing for arrays and primitives
+  // fireCopy: copy a value and remove $-prefixed attrs
+  self.fireCopy = function(value) {
+    // Do nothing for arrays and primitives
     if (angular.isObject(value)) {
       var cloned = angular.isArray(value) ? new Array(value.length) : {};
       for (var key in value) {
         if (value.hasOwnProperty(key) && key.charAt(0) !== '$' && angular.isDefined(value[key])) {
           if (angular.isObject(value[key])) {
-            cloned[key] = fireCopy(value[key]);
+            cloned[key] = self.fireCopy(value[key]);
           } else {
             cloned[key] = value[key];
           }
@@ -683,9 +725,9 @@ angular.module('altfire', [])
       return cloned;
     }
     return value;
-  }
+  };
 
-  function fireMerge(remote, local) {
+  self.fireMerge = function(remote, local) {
     var merged;
     if (angular.equals(remote, local)) {
       return local;
@@ -697,15 +739,15 @@ angular.module('altfire', [])
         merged[key] = remote[key];
       }
       return merged;
-    } else if ((remote === undefined || remote === null) && angular.isDefined(local)) {
+    } else if ((angular.isUndefined(remote) || remote === null) && angular.isDefined(local)) {
       return local;
     } else {
       //Eg if remote is a primitive this will fire
       return remote;
     }
-  }
+  };
 
-  function makeObjectReporter(object, name, callback) {
+  self.makeObjectReporter = function(object, name, callback) {
     var savedScope = {};
     savedScope[name] = angular.copy(object[name]);
 
@@ -724,7 +766,7 @@ angular.module('altfire', [])
     };
 
     function reportChange(path, newValue) {
-      if (newValue === undefined) newValue = null;
+      if (angular.isUndefined(newValue)) newValue = null;
       path.shift(); // first item in path is the `name`, we don't need this
       callback(path, newValue);
     }
@@ -790,8 +832,11 @@ angular.module('altfire', [])
         }
       }
     }
-  }
+  };
+
+  return self;
 }]);
+
 
 (function() {
   Firebase.IGNORE_ERROR = {};  // unique marker object
