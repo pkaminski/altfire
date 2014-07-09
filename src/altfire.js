@@ -390,6 +390,7 @@ angular.module('altfire', [])
     handles.$areAllReady = function() {
       var ready = true;
       angular.forEach(handles, function(value, key) {
+        if (key.charAt(0) === '$') return;
         ready = ready && value.isReady();
       });
       return ready;
