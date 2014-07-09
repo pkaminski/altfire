@@ -387,6 +387,13 @@ angular.module('altfire', [])
         return values;
       });
     };
+    handles.$areAllReady = function() {
+      var ready = true;
+      angular.forEach(handles, function(value, key) {
+        ready = ready && value.isReady();
+      });
+      return ready;
+    };
     handles.$destroyAll = function() {
       angular.forEach(handles, function(value, key) {
         if (key.charAt(0) !== '$') value.destroy();
