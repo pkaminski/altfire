@@ -128,7 +128,9 @@ angular.module('altfire', [])
           throw new Error('Invalid path interpolation: ' + path);
         } catch(e) {
           if (noWatch) throw e;
-          console.log(e.stack.replace(/\n[^\n]*(altfire|angular(\.min)?)\.js[^\n]*$/gm, ''));
+          if (/\baltfire\b/.test(e.stack)) {
+            console.log(e.stack.replace(/\n[^\n]*(altfire|angular(\.min)?)\.js[^\n]*$/gm, ''));
+          }
         }
         pathCache[path] = null;
         return null;
