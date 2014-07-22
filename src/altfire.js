@@ -347,6 +347,14 @@ angular.module('altfire', [])
         return ref;
       };
     }
+    if (viaFlavor === 'via') {
+      handle.ref = function() {
+        var ref = fire.ref;
+        if (ref.ref) ref = ref.ref();
+        if (arguments.length) ref = ref.child(Array.prototype.slice.call(arguments, 0).join('/'));
+        return ref;
+      };
+    }
     if (viaFlavor) {
       handle[viaFlavor] = function() {return fire.filterValue;};
     }
@@ -511,7 +519,7 @@ angular.module('altfire', [])
               'via value of ' + filterRef + ' must not be an object, ignoring: ' + snap.val());
           }
           self.filterValue = snap.val();  // it's primitive
-          ref = new Firebase(filterPath.replace('#', self.filterValue));
+          self.ref = ref = new Firebase(filterPath.replace('#', self.filterValue));
           firebaseBindRef([], onRootValue);
         });
       } else if (filterFlavor === 'viaKeys' || filterFlavor === 'viaValues') {
