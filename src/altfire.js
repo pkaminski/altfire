@@ -433,6 +433,14 @@ angular.module('altfire', [])
     return array;
   };
 
+  /**
+   * Generates a new, globally unique key in the same way as push() does.
+   * @return {string} A unique key.
+   */
+  self.generateUniqueKey = function() {
+    return new Firebase(root).push().name();
+  };
+
   return self;
 
   function Fire(scope, name, connectionFlavor, ref, filterFlavor, filterRef, filterValueExtractor) {
