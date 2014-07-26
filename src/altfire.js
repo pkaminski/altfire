@@ -54,24 +54,22 @@ angular.module('altfire', [])
   };
 
   function normalizeSnapshotValue(snap) {
-    var value = normalizeSnapshotValueHelper(snap.ref().toString(), snap.val());
-    if (snap.hasChildren()) {
-      Object.defineProperty(value, '$key', {value: snap.name()});
-      if (snap.getPriority() !== null) {
-        Object.defineProperty(value, '.priority', {value: snap.getPriority()});
-      }
+    var value = normalizeSnapshotValueHelper(snap.ref().toString(), snap.name(), snap.val());
+    if (snap.hasChildren() && snap.getPriority() !== null) {
+      Object.defineProperty(value, '.priority', {value: snap.getPriority()});
     }
     return value;
   }
 
-  function normalizeSnapshotValueHelper(path, value) {
+  function normalizeSnapshotValueHelper(path, key, value) {
     var normalValue;
-    if (angular.isObject(value)) normalValue = createObject(path) || value;
-    else if (angular.isArray(value)) normalValue = createObject(path) || {};
+    if (angular.isArray(value)) normalValue = createObject(path) || {};
+    else if (angular.isObject(value)) normalValue = createObject(path) || value;
     if (normalValue) {
+      Object.defineProperty(normalValue, '$key', {value: key});
       angular.forEach(value, function(item, key) {
         if (!(item === null || angular.isUndefined(item))) {
-          normalValue[key] = normalizeSnapshotValueHelper(path + '/' + key, item);
+          normalValue[key] = normalizeSnapshotValueHelper(path + '/' + key, key, item);
         }
       });
     }
