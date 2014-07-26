@@ -46,7 +46,7 @@ angular.module('altfire', [])
       if (match) {
         var o = new descriptor.constructor();
         for (var j = 0; j < descriptor.variables.length; j++) {
-          o[descriptor.variables[j]] = match[j + 1];
+          Object.defineProperty(o, descriptor.variables[j], {value: match[j + 1]});
         }
         return o;
       }
@@ -55,8 +55,11 @@ angular.module('altfire', [])
 
   function normalizeSnapshotValue(snap) {
     var value = normalizeSnapshotValueHelper(snap.ref().toString(), snap.val());
-    if (snap.hasChildren() && snap.getPriority() !== null) {
-      value['.priority'] = snap.getPriority();
+    if (snap.hasChildren()) {
+      Object.defineProperty(value, '$key', {value: snap.name()});
+      if (snap.getPriority() !== null) {
+        Object.defineProperty(value, '.priority', {value: snap.getPriority()});
+      }
     }
     return value;
   }
@@ -423,10 +426,7 @@ angular.module('altfire', [])
     var array = [];
     if (o) {
       angular.forEach(o, function(value, key) {
-        if (angular.isObject(value)) {
-          value.$key = key;
-          array.push(value);
-        }
+        if (angular.isObject(value)) array.push(value);
       });
       orderByFilter(array, '$key');
     }
