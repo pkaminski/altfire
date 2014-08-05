@@ -724,6 +724,7 @@ angular.module('altfire', [])
 
 
 .factory('fireHelpers', [function() {
+  'use strict';
   var self = {};
 
   var FIRE_COMPARE_MAX_DEPTH = 6;
@@ -744,7 +745,7 @@ angular.module('altfire', [])
     return function(scope) {
       var value = scope[name];
       for (var i = 0, ii = path.length; i < ii; i++) {
-        if (angular.isUndefined(value)) return;
+        if (value === null || angular.isUndefined(value)) return;
         value = value[path[i]];
       }
       return value;
