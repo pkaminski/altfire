@@ -153,8 +153,8 @@ angular.module('altfire', [])
     if (viaPath && path.search('#') === -1) {
       path += '/#';
     }
-    var pathInterpolator = angular.isString(path) ? $interpolate(path, false) : undefined;
-    var viaPathInterpolator = angular.isString(viaPath) ? $interpolate(viaPath, false) : undefined;
+    var pathInterpolator = angular.isString(path) ? $interpolate(path, true) : undefined;
+    var viaPathInterpolator = angular.isString(viaPath) ? $interpolate(viaPath, true) : undefined;
 
     function interpolatePaths(scope) {
       return [
@@ -496,7 +496,7 @@ angular.module('altfire', [])
       });
     }
 
-    var childInterpolator = watch.child ? $interpolate(watch.child, false) : null;
+    var childInterpolator = watch.child ? $interpolate(watch.child, true) : null;
     $rootScope.$watch(function() {
       var ref = handle.ref();
       if (!ref) return null;
