@@ -61,13 +61,20 @@ angular.module('altfire', [])
     return value;
   }
 
+  function getRefChild(path) {
+    if (arguments.length > 1) {
+      path += '/' + Array.prototype.slice.call(arguments, 1).join('/');
+    }
+    return new Firebase(path);
+  }
+
   function normalizeSnapshotValueHelper(path, key, value) {
     var normalValue;
     if (angular.isArray(value)) normalValue = createObject(path) || {};
     else if (angular.isObject(value)) normalValue = createObject(path) || value;
     if (normalValue) {
       Object.defineProperty(normalValue, '$key', {value: key});
-      Object.defineProperty(normalValue, '$ref', {value: new Firebase(path)});
+      Object.defineProperty(normalValue, '$ref', {value: angular.bind(null, getRefChild, path)});
       angular.forEach(value, function(item, childKey) {
         if (!(item === null || angular.isUndefined(item))) {
           normalValue[childKey] = normalizeSnapshotValueHelper(
@@ -235,9 +242,10 @@ angular.module('altfire', [])
    *        reference, as appropriate.
    *    watch:  An array of watcher declarations, for reacting to changes in the connected value or
    *        its children.  These watchers are similar to Angular's $scope.$watch* methods but much
-   *        more efficient because they only work on Firebase data.  For now, watchers are only
-   *        compatible with single-valued connections (plain or via).  Each watcher declaration
-   *        looks like this:
+   *        more efficient because they only work on Firebase data.  For extra efficiency, consider
+   *        debouncing or throttling the callback functions if they're hooked into paths that update
+   *        nearly but not exactly at the same time.  For now, watchers are only compatible with
+   *        single-valued connections (plain or via).  Each watcher declaration looks like this:
    *        child: optional path to the child of interest, relative to the connection's path and to
    *            be interpolated using the same scope.
    *        onChange: optional function to be invoked whenever the value pointed to by the child
@@ -484,17 +492,6 @@ angular.module('altfire', [])
     this.allKeys = [];
     this.fireChangesAsync = angular.bind(
       $rootScope, $rootScope.$evalAsync, angular.bind(this, this.fireChanges));
-    this.eventMethods = {};
-    if (watch.onChange) {
-      this.eventMethods.value = angular.bind(this, this.valueChanged);
-    }
-    if (watch.onCollectionChange) {
-      angular.extend(this.eventMethods, {
-        'child_added': angular.bind(this, this.childAdded),
-        'child_removed': angular.bind(this, this.childRemoved),
-        'child_moved': angular.bind(this, this.childMoved)
-      });
-    }
 
     var childInterpolator = watch.child ? $interpolate(watch.child, true) : null;
     $rootScope.$watch(function() {
@@ -530,15 +527,25 @@ angular.module('altfire', [])
   }
 
   Watcher.prototype.listen = function() {
-    angular.forEach(this.eventMethods, function(method, eventType) {
-      this.ref.on(eventType, method);
-    }, this);
+    if (this.onChange) {
+      this.ref.on('value', this.valueChanged, this);
+    }
+    if (this.onCollectionChange) {
+      this.ref.on('child_added', this.childAdded, this);
+      this.ref.on('child_removed', this.childRemoved, this);
+      this.ref.on('child_moved', this.childMoved, this);
+    }
   };
 
   Watcher.prototype.unlisten = function() {
-    angular.forEach(this.eventMethods, function(method, eventType) {
-      this.ref.off(eventType, method);
-    }, this);
+    if (this.onChange) {
+      this.ref.off('value', this.valueChanged, this);
+    }
+    if (this.onCollectionChange) {
+      this.ref.off('child_added', this.childAdded, this);
+      this.ref.off('child_removed', this.childRemoved, this);
+      this.ref.off('child_moved', this.childMoved, this);
+    }
   };
 
   Watcher.prototype.destroy = function() {
