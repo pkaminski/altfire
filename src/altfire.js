@@ -67,9 +67,11 @@ angular.module('altfire', [])
     else if (angular.isObject(value)) normalValue = createObject(path) || value;
     if (normalValue) {
       Object.defineProperty(normalValue, '$key', {value: key});
-      angular.forEach(value, function(item, key) {
+      Object.defineProperty(normalValue, '$ref', {value: new Firebase(path)});
+      angular.forEach(value, function(item, childKey) {
         if (!(item === null || angular.isUndefined(item))) {
-          normalValue[key] = normalizeSnapshotValueHelper(path + '/' + key, key, item);
+          normalValue[childKey] = normalizeSnapshotValueHelper(
+            path + '/' + childKey, childKey, item);
         }
       });
     }
@@ -231,6 +233,21 @@ angular.module('altfire', [])
    *    query:  A function that, given a Firebase reference, applies any desired query limit to it.
    *        This will be invoked automatically on either the primary reference, or on the via*
    *        reference, as appropriate.
+   *    watch:  An array of watcher declarations, for reacting to changes in the connected value or
+   *        its children.  These watchers are similar to Angular's $scope.$watch* methods but much
+   *        more efficient because they only work on Firebase data.  For now, watchers are only
+   *        compatible with single-valued connections (plain or via).  Each watcher declaration
+   *        looks like this:
+   *        child: optional path to the child of interest, relative to the connection's path and to
+   *            be interpolated using the same scope.
+   *        onChange: optional function to be invoked whenever the value pointed to by the child
+   *            path (or the connection itself) changes, at any depth.  The function is not passed
+   *            any arguments -- if you want the new value, you can get it from the bound scope.
+   *        onCollectionChange: optional function to be invoked whenever the object pointed to by
+   *            the child path (or the connection itself) has children added, removed, or moved (by
+   *            changing their priority).  The function is passed three array arguments: a list of
+   *            keys added since the last call, removed since the last call, and moved since the
+   *            last call.
    * @return {Object} A handle to the connection with the following methods:
    *    destroy():  Destroys this connection (including all listeners) and deletes the destination
    *        attribute.
@@ -281,13 +298,16 @@ angular.module('altfire', [])
       }
     });
     if (viaFlavor && (connectionFlavor === 'once' || connectionFlavor === 'noop')) {
-      throw new Error('Cannot combine via* with "once" or "noop".');
+      throw new Error('Cannot combine "' + viaFlavor + '" with "once" or "noop".');
+    }
+    if (args.watch && viaFlavor && viaFlavor !== 'via') {
+      throw new Error('Cannot yet combine "' + viaFlavor + '" with "watch".');
     }
     if (args.viaValueExtractor && viaFlavor !== 'viaValues') {
       throw new Error('Can only use "viaValueExtractor" with "viaValues".');
     }
     if (viaFlavor === 'viaIds' && args.query) {
-      throw new Error('Cannot combine viaIds with a query.');
+      throw new Error('Cannot combine "viaIds" with "query".');
     }
 
     function applyQuery(ref) {
@@ -334,31 +354,46 @@ angular.module('altfire', [])
         }
       }
     });
+
+    var watchers = [];
     var handle = {
-      destroy: function() {if (fire) fire.destroy();},
+      destroy: function() {
+        if (fire) fire.destroy();
+        angular.forEach(watchers, function(watcher) {watcher.destroy();});
+      },
       isReady: function() {return fire && fire.isReady;},
       ready: function() {return fire && fire.ready();},
       allowedKeys: function() {return fire && fire.allowedKeys;}
     };
+
     if (refName) {
       handle[refName] = function() {
-        var ref = fire[refName];
-        if (ref.ref) ref = ref.ref();
-        if (arguments.length) ref = ref.child(Array.prototype.slice.call(arguments, 0).join('/'));
+        var ref = fire && fire[refName];
+        if (ref) {
+          if (ref.ref) ref = ref.ref();
+          if (arguments.length) ref = ref.child(Array.prototype.slice.call(arguments, 0).join('/'));
+        }
         return ref;
       };
     }
     if (viaFlavor === 'via') {
       handle.ref = function() {
-        var ref = fire.ref;
-        if (ref.ref) ref = ref.ref();
-        if (arguments.length) ref = ref.child(Array.prototype.slice.call(arguments, 0).join('/'));
+        var ref = fire && fire.ref;
+        if (ref) {
+          if (ref.ref) ref = ref.ref();
+          if (arguments.length) ref = ref.child(Array.prototype.slice.call(arguments, 0).join('/'));
+        }
         return ref;
       };
     }
     if (viaFlavor) {
-      handle[viaFlavor] = function() {return fire.filterValue;};
+      handle[viaFlavor] = function() {return fire && fire.filterValue;};
     }
+
+    angular.forEach(args.watch, function(watch) {
+      watchers.push(new Watcher(watch, handle, args.pathScope || args.scope));
+    });
+
     return handle;
   };
 
@@ -439,6 +474,123 @@ angular.module('altfire', [])
     return new Firebase(root).push().name();
   };
 
+  function Watcher(watch, handle, scope) {
+    this.onChange = watch.onChange;
+    this.onCollectionChange = watch.onCollectionChange;
+    this.change = false;
+    this.addedKeys = [];
+    this.removedKeys = [];
+    this.movedKeys = [];
+    this.allKeys = [];
+    this.fireChangesAsync = angular.bind(
+      $rootScope, $rootScope.$evalAsync, angular.bind(this, this.fireChanges));
+    this.eventMethods = {};
+    if (watch.onChange) {
+      this.eventMethods.value = angular.bind(this, this.valueChanged);
+    }
+    if (watch.onCollectionChange) {
+      angular.extend(this.eventMethods, {
+        'child_added': angular.bind(this, this.childAdded),
+        'child_removed': angular.bind(this, this.childRemoved),
+        'child_moved': angular.bind(this, this.childMoved)
+      });
+    }
+
+    var childInterpolator = watch.child ? $interpolate(watch.child, false) : null;
+    $rootScope.$watch(function() {
+      var ref = handle.ref();
+      if (!ref) return null;
+      var path = ref.toString();
+      if (watch.child) {
+        var childPath = watch.child;
+        if (childInterpolator) {
+          childPath = childInterpolator(scope);
+          if (childPath.indexOf('//') !== -1 || childPath.charAt(childPath.length - 1) === '/' ||
+              childPath.charAt(0) === '/') {
+            return null;
+          }
+        }
+        path = path + '/' + childPath;
+      }
+      return path;
+    }, angular.bind(this, function(path) {
+      if (this.ref) this.unlisten();
+      this.ref = path ? new Firebase(path) : null;
+      this.change = true;
+      this.addedKeys = [];
+      this.movedKeys = [];
+      this.removedKeys = this.allKeys;
+      this.allKeys = [];
+      if (this.ref) {
+        this.listen();  // value event will come in and fire changes
+      } else {
+        this.fireChangesAsync();
+      }
+    }));
+  }
+
+  Watcher.prototype.listen = function() {
+    angular.forEach(this.eventMethods, function(method, eventType) {
+      this.ref.on(eventType, method);
+    }, this);
+  };
+
+  Watcher.prototype.unlisten = function() {
+    angular.forEach(this.eventMethods, function(method, eventType) {
+      this.ref.off(eventType, method);
+    }, this);
+  };
+
+  Watcher.prototype.destroy = function() {
+    if (this.ref) this.unlisten();
+  };
+
+  Watcher.prototype.valueChanged = function() {
+    this.change = true;
+    this.fireChangesAsync();
+  };
+
+  Watcher.prototype.childAdded = function(snap) {
+    this.addedKeys.push(snap.name());
+    var k = this.removedKeys.indexOf(snap.name());
+    if (k >= 0) this.removedKeys.splice(k, 1);
+    this.fireChangesAsync();
+  };
+
+  Watcher.prototype.childRemoved = function(snap) {
+    this.removedKeys.push(snap.name());
+    var k = this.addedKeys.indexOf(snap.name());
+    if (k >= 0) this.addedKeys.splice(k, 1);
+    k = this.movedKeys.indexOf(snap.name());
+    if (k >= 0) this.movedKeys.splice(k, 1);
+    k = this.allKeys.indexOf(snap.name());
+    if (k >= 0) this.allKeys.splice(k, 1);
+    this.fireChangesAsync();
+  };
+
+  Watcher.prototype.childMoved = function(snap) {
+    this.movedKeys.push(snap.name());
+    this.fireChangesAsync();
+  };
+
+  Watcher.prototype.fireChanges = function() {
+    if (this.onChange && this.change) {
+      this.change = false;
+      this.onChange();
+    }
+    if (this.onCollectionChange && (
+        this.addedKeys.length || this.removedKeys.length || this.movedKeys.length)) {
+      var addedKeys = this.addedKeys, removedKeys = this.removedKeys, movedKeys = this.movedKeys;
+      this.allKeys.push.apply(this.allKeys, addedKeys);
+      angular.forEach(removedKeys, function(key) {
+        var k = this.allKeys.indexOf(key);
+        if (k >= 0) this.allKeys.splice(k, 1);
+      }, this);
+      this.addedKeys = []; this.removedKeys = []; this.movedKeys = [];
+      this.onCollectionChange(addedKeys, removedKeys, movedKeys);
+    }
+  };
+
   return self;
 
   function Fire(scope, name, connectionFlavor, ref, filterFlavor, filterRef, filterValueExtractor) {
@@ -477,10 +629,9 @@ angular.module('altfire', [])
     return self;
 
     function destroy() {
-      if (filterRef) {
-        removeListeners(filterRef);
-        self.allowedKeys = {};
-      }
+      angular.forEach(listeners, function(submap, targetName) {
+        removeListeners(new Firebase(targetName));
+      });
       if (filterFlavor === 'viaKeys' || filterFlavor === 'viaValues') {
         angular.forEach(scope[name], function(value, key) {
           firebaseUnbindRef([key], value);
@@ -597,21 +748,20 @@ angular.module('altfire', [])
     //2) if top level was a primitive and now we are to object, reassign
     //3) if top level was object and now we are to primitive, reassign
     function onRootValue(value) {
-      $rootScope.$evalAsync(function() {
-        if (!self.isReady) {
-          //First time value comes, merge it in and push it
-          scope[name] = fireHelpers.fireMerge(value, scope[name]);
-          setReady();
-          if (connectionFlavor === 'bind') {
-            self.ready().then(function() {
-               onLocalChange([], scope[name]);
-            });
-          }
-        } else if (!angular.isObject(value) || !angular.isObject(scope[name])) {
-          scope[name] = value;
-          if (reporter) reporter.savedScope[name] = angular.copy(value);
+      if (!self.isReady) {
+        //First time value comes, merge it in and push it
+        scope[name] = fireHelpers.fireMerge(value, scope[name]);
+        setReady();
+        if (connectionFlavor === 'bind') {
+          self.ready().then(function() {
+             onLocalChange([], scope[name]);
+          });
         }
-      });
+      } else if (!angular.isObject(value) || !angular.isObject(scope[name])) {
+        scope[name] = value;
+        if (reporter) reporter.savedScope[name] = angular.copy(value);
+      }
+      $rootScope.$evalAsync(angular.noop);
     }
 
     //listen to value for each filtered key. same rules as top level,
@@ -632,7 +782,7 @@ angular.module('altfire', [])
           }
           // Trigger just one digest after all filtered props have been initialized.  Afterwards,
           // trigger one digest per change as normal.
-          if (self.isReady) $rootScope.$evalAsync(function() {});
+          if (self.isReady) $rootScope.$evalAsync(angular.noop);
         }
       };
     }
@@ -704,20 +854,18 @@ angular.module('altfire', [])
     }
 
     function invokeChange(type, path, key, value) {
-      $rootScope.$evalAsync(function() {
-        var parsed = fireHelpers.parsePath(name, path);
-        var changeScope;
-        switch(type) {
-          case 'child_removed':
-            fireHelpers.remove(parsed(scope), key, value);
-            if (reporter) fireHelpers.remove(parsed(reporter.savedScope), key);
-            break;
-          case 'child_added':
-          case 'child_changed':
-            fireHelpers.set(parsed(scope), key, value);
-            if (reporter) fireHelpers.set(parsed(reporter.savedScope), key, angular.copy(value));
-        }
-      });
+      var parsed = fireHelpers.parsePath(name, path);
+      switch(type) {
+        case 'child_removed':
+          fireHelpers.remove(parsed(scope), key, value);
+          if (reporter) fireHelpers.remove(parsed(reporter.savedScope), key);
+          break;
+        case 'child_added':
+        case 'child_changed':
+          fireHelpers.set(parsed(scope), key, value);
+          if (reporter) fireHelpers.set(parsed(reporter.savedScope), key, angular.copy(value));
+      }
+      $rootScope.$evalAsync(angular.noop);
     }
   }
 }])
@@ -883,6 +1031,8 @@ angular.module('altfire', [])
 
 
 (function() {
+  'use strict';
+
   Firebase.IGNORE_ERROR = {};  // unique marker object
   var errorCallbacks = [];
   var interceptInPlace = false;
