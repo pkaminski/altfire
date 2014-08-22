@@ -373,6 +373,7 @@ angular.module('altfire', [])
       ready: function() {return fire && fire.ready();},
       allowedKeys: function() {return fire && fire.allowedKeys;}
     };
+    if (args.scope.$on) args.scope.$on('$destroy', handle.destroy);
 
     if (refName) {
       handle[refName] = function() {
@@ -608,7 +609,6 @@ angular.module('altfire', [])
     //Resolved once initial value comes down
     var readyDeferred = $q.defer();
 
-    if (scope.$on) scope.$on('$destroy', destroy);
     self.destroy = destroy;
     self.isReady = false;
     self.ready = function() {
