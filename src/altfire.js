@@ -1072,10 +1072,11 @@ angular.module('altfire', [])
     angular.forEach(methods, function(onCompleteArgIndex, methodName) {
       var wrappedMethod = target[methodName];
       target[methodName] = function() {
-        var onComplete = arguments[onCompleteArgIndex] || angular.noop;
+        var hasOnComplete = _.isFunction(arguments[onCompleteArgIndex]);
+        var onComplete = hasOnComplete ? arguments[onCompleteArgIndex] : angular.noop;
         var args = Array.prototype.slice.call(arguments);
         var ref = this;
-        args[onCompleteArgIndex] = function(error) {
+        var wrappedOnComplete = function(error) {
           var onCompleteCallbackResult = onComplete.apply(this, arguments);
           if (error && onCompleteCallbackResult !== Firebase.IGNORE_ERROR) {
             angular.forEach(errorCallbacks, function(callback) {
@@ -1083,6 +1084,7 @@ angular.module('altfire', [])
             });
           }
         };
+        args.splice(onCompleteArgIndex, hasOnComplete ? 1 : 0, wrappedOnComplete);
         return wrappedMethod.apply(this, args);
       };
     });
