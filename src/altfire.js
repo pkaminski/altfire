@@ -1072,8 +1072,9 @@ angular.module('altfire', [])
     angular.forEach(methods, function(onCompleteArgIndex, methodName) {
       var wrappedMethod = target[methodName];
       target[methodName] = function() {
-        var hasOnComplete = _.isFunction(arguments[onCompleteArgIndex]);
-        var onComplete = hasOnComplete ? arguments[onCompleteArgIndex] : angular.noop;
+        var hasOnComplete = _.isFunction(arguments[onCompleteArgIndex]) ||
+          _.isUndefined(arguments[onCompleteArgIndex]);
+        var onComplete = arguments[onCompleteArgIndex] || angular.noop;
         var args = Array.prototype.slice.call(arguments);
         var ref = this;
         var wrappedOnComplete = function(error) {
