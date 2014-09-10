@@ -881,7 +881,7 @@ angular.module('altfire', [])
 .filter('escapeFirebase', function() {
   'use strict';
   return function(name) {
-    return name.toString().replace(/[\\\.\$\[\]\/]/g, function(char) {
+    return name.toString().replace(/[\\\.\$\#\[\]\/]/g, function(char) {
       return '\\' + char.charCodeAt(0).toString(16);
     });
   };
