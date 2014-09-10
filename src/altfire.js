@@ -878,6 +878,16 @@ angular.module('altfire', [])
 }])
 
 
+.filter('escapeFirebase', function() {
+  'use strict';
+  return function(name) {
+    return name.toString().replace(/[\\\.\$\[\]\/]/g, function(char) {
+      return '\\' + char.charCodeAt(0).toString(16);
+    });
+  };
+})
+
+
 .factory('fireHelpers', [function() {
   'use strict';
   var self = {};
