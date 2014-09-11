@@ -256,6 +256,10 @@ angular.module('altfire', [])
    *            changing their priority).  The function is passed three array arguments: a list of
    *            keys added since the last call, removed since the last call, and moved since the
    *            last call.
+   *    digest:  A function that will be called after each time changes from Firebase are applied to
+   *        a local model.  Defaults to $rootScope.$evalAsync, but in some cases it can be useful to
+   *        override it with a throttled or debounced wrapper around $evalAsync instead.  Does not
+   *        affect watchers.
    * @return {Object} A handle to the connection with the following methods:
    *    destroy():  Destroys this connection (including all listeners) and deletes the destination
    *        attribute.
@@ -317,6 +321,7 @@ angular.module('altfire', [])
     if (viaFlavor === 'viaIds' && args.query) {
       throw new Error('Cannot combine "viaIds" with "query".');
     }
+    args.digest = args.digest || _.bind($rootScope.$evalAsync, $rootScope);
 
     function applyQuery(ref) {
       if (args.query) ref = args.query(ref);
@@ -354,11 +359,15 @@ angular.module('altfire', [])
         if (iViaPath) {
           fire = Fire(
             args.scope, args.name, connectionFlavor, iPath, viaFlavor,
-            applyQuery(new Firebase(iViaPath)), args.viaValueExtractor);
+            applyQuery(new Firebase(iViaPath)), args.viaValueExtractor, args.digest);
         } else if (viaFlavor === 'viaIds') {
-          fire = Fire(args.scope, args.name, connectionFlavor, iPath, viaFlavor, args.viaIds);
+          fire = Fire(
+            args.scope, args.name, connectionFlavor, iPath, viaFlavor, args.viaIds, null,
+            args.digest);
         } else {
-          fire = Fire(args.scope, args.name, connectionFlavor, applyQuery(new Firebase(iPath)));
+          fire = Fire(
+            args.scope, args.name, connectionFlavor, applyQuery(new Firebase(iPath)), null, null,
+            null, args.digest);
         }
       }
     });
@@ -601,7 +610,8 @@ angular.module('altfire', [])
 
   return self;
 
-  function Fire(scope, name, connectionFlavor, ref, filterFlavor, filterRef, filterValueExtractor) {
+  function Fire(
+      scope, name, connectionFlavor, ref, filterFlavor, filterRef, filterValueExtractor, digest) {
     var self = {};
     var listeners = {};
     filterValueExtractor = filterValueExtractor || angular.identity;
@@ -768,7 +778,7 @@ angular.module('altfire', [])
         scope[name] = value;
         if (reporter) reporter.savedScope[name] = angular.copy(value);
       }
-      $rootScope.$evalAsync(angular.noop);
+      digest();
     }
 
     //listen to value for each filtered key. same rules as top level,
@@ -789,7 +799,7 @@ angular.module('altfire', [])
           }
           // Trigger just one digest after all filtered props have been initialized.  Afterwards,
           // trigger one digest per change as normal.
-          if (self.isReady) $rootScope.$evalAsync(angular.noop);
+          if (self.isReady) digest();
         }
       };
     }
@@ -872,7 +882,7 @@ angular.module('altfire', [])
           fireHelpers.set(parsed(scope), key, value);
           if (reporter) fireHelpers.set(parsed(reporter.savedScope), key, angular.copy(value));
       }
-      $rootScope.$evalAsync(angular.noop);
+      digest();
     }
   }
 }])
