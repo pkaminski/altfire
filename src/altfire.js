@@ -328,7 +328,7 @@ angular.module('altfire', [])
       return ref;
     }
 
-    var fire;
+    var fire, fireDeferred = $q.defer();
     expandPath(args.pathScope || args.scope, path, viaPath, function(iPath, iViaPath) {
       if (fire) {
         fire.destroy();
@@ -370,6 +370,7 @@ angular.module('altfire', [])
             null, args.digest);
         }
       }
+      if (fire) fireDeferred.resolve(fire);
     });
 
     var watchers = [];
@@ -379,7 +380,7 @@ angular.module('altfire', [])
         angular.forEach(watchers, function(watcher) {watcher.destroy();});
       },
       isReady: function() {return fire && fire.isReady;},
-      ready: function() {return fire && fire.ready();},
+      ready: function() {return fireDeferred.promise.then(function(fire) {return fire.ready();});},
       allowedKeys: function() {return fire && fire.allowedKeys;}
     };
     if (args.scope.$on) args.scope.$on('$destroy', handle.destroy);
@@ -441,7 +442,7 @@ angular.module('altfire', [])
       angular.forEach(handles, function(value, key) {
         if (key.charAt(0) === '$') return;
         boundNames.push(key);
-        if (value.ready()) promises.push(value.ready());
+        promises.push(value.ready());
       });
       return $q.all(promises).then(function() {
         var values = {};
