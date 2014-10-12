@@ -86,6 +86,19 @@ angular.module('altfire', [])
   }
 
   /**
+   * Pretend that a value was retrieved from the given ref, and normalize and decorate it just like
+   * values retrieved from Firebase.  This will turn all arrays into objects, and add a $key
+   * property and $ref method to each object (recursively).  It does not modify the datastore in any
+   * way, but may mutate the value that was passed in.
+   * @param  {Firebase} ref The Firebase reference to which the value should be "attached".
+   * @param  {Object} value The value to decorate.
+   * @return {Object}       The decorated value.  May be a new object.
+   */
+  self.decorate = function(ref, value) {
+    return normalizeSnapshotValueHelper(ref.toString(), ref.name(), value);
+  };
+
+  /**
    * Sets the default root for all Firebase data paths that don't include a host. You probably
    * want to set a root when your app initializes. Note that no distinction is made between
    * relative and absolute paths -- all have the full root prepended if they lack a host.
