@@ -274,8 +274,8 @@ angular.module('altfire', [])
    *        override it with a throttled or debounced wrapper around $evalAsync instead.  Does not
    *        affect watchers.
    * @return {Object} A handle to the connection with the following methods:
-   *    destroy():  Destroys this connection (including all listeners) and deletes the destination
-   *        attribute.
+   *    destroy(keepValue):  Destroys this connection (including all listeners), and deletes the
+   *        destination attribute unless keepValue is true.
    *    isReady():  Returns whether the connection has processed the initial remote value.
    *    ready():  Returns a promise that will be resolved (with no value) when the connection
    *        becomes ready.
@@ -388,8 +388,8 @@ angular.module('altfire', [])
 
     var watchers = [];
     var handle = {
-      destroy: function() {
-        if (fire) fire.destroy();
+      destroy: function(keepValue) {
+        if (fire) fire.destroy(keepValue);
         angular.forEach(watchers, function(watcher) {watcher.destroy();});
       },
       isReady: function() {return fire && fire.isReady;},
@@ -441,7 +441,7 @@ angular.module('altfire', [])
    *    $allReady():  Returns a promise that resolves when all requested connections have been made
    *        ready.  The resolve value will be a map of connection name to the bound value at the
    *        moment the promise is resolved (particularly useful for 'once' connections).
-   *    $destroyAll():  Calls destroy() on all the connections in the map.
+   *    $destroyAll(keepValue):  Calls destroy(keepValue) on all the connections in the map.
    */
   self.connect = function(scope, map) {
     var handles = {};
@@ -473,9 +473,9 @@ angular.module('altfire', [])
       });
       return ready;
     };
-    handles.$destroyAll = function() {
+    handles.$destroyAll = function(keepValue) {
       angular.forEach(handles, function(value, key) {
-        if (key.charAt(0) !== '$') value.destroy();
+        if (key.charAt(0) !== '$') value.destroy(keepValue);
       });
     };
     return handles;
@@ -659,7 +659,7 @@ angular.module('altfire', [])
 
     return self;
 
-    function destroy() {
+    function destroy(keepValue) {
       angular.forEach(listeners, function(submap, targetName) {
         removeListeners(new Firebase(targetName));
       });
@@ -672,7 +672,7 @@ angular.module('altfire', [])
       }
       if (unbindWatch) unbindWatch();
       if (reporter) reporter.destroy();
-      delete scope[name];
+      if (!keepValue) delete scope[name];
     }
 
     function addListener(target, event, callback) {
