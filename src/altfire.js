@@ -273,6 +273,11 @@ angular.module('altfire', [])
    *        a local model.  Defaults to $rootScope.$evalAsync, but in some cases it can be useful to
    *        override it with a throttled or debounced wrapper around $evalAsync instead.  Does not
    *        affect watchers.
+   *    onError:  A function that will be called whenever any Firebase call fails, either in the
+   *        main connection or in a watch.  Errors come mainly from on() listeners, but can also be
+   *        from mutation methods in a 'bind' connection.  The function will be passed the error
+   *        object given by Firebase, and its return value will be returned from the original
+   *        callback as well.
    * @return {Object} A handle to the connection with the following methods:
    *    destroy(keepValue):  Destroys this connection (including all listeners), and deletes the
    *        destination attribute unless keepValue is true.
@@ -367,20 +372,20 @@ angular.module('altfire', [])
           args.scope[args.name] = normalizeSnapshotValue(snap);
           fire.isReady = true;
           readyDeferred.resolve();
-        });
+        }, args.onError);
       } else if (iPath && (!viaPath || iViaPath)) {
         if (iViaPath) {
           fire = Fire(
             args.scope, args.name, connectionFlavor, iPath, viaFlavor,
-            applyQuery(new Firebase(iViaPath)), args.viaValueExtractor, args.digest);
+            applyQuery(new Firebase(iViaPath)), args.viaValueExtractor, args.digest, args.onError);
         } else if (viaFlavor === 'viaIds') {
           fire = Fire(
             args.scope, args.name, connectionFlavor, iPath, viaFlavor, args.viaIds, null,
-            args.digest);
+            args.digest, args.onError);
         } else {
           fire = Fire(
             args.scope, args.name, connectionFlavor, applyQuery(new Firebase(iPath)), null, null,
-            null, args.digest);
+            null, args.digest, args.onError);
         }
       }
       if (fire) fireDeferred.resolve(fire);
@@ -423,7 +428,7 @@ angular.module('altfire', [])
     }
 
     angular.forEach(args.watch, function(watch) {
-      watchers.push(new Watcher(watch, handle, args.pathScope || args.scope));
+      watchers.push(new Watcher(watch, handle, args.pathScope || args.scope, args.onError));
     });
 
     return handle;
@@ -506,9 +511,10 @@ angular.module('altfire', [])
     return new Firebase(root).push().name();
   };
 
-  function Watcher(watch, handle, scope) {
+  function Watcher(watch, handle, scope, onError) {
     this.onChange = watch.onChange;
     this.onCollectionChange = watch.onCollectionChange;
+    this.onError = onError;
     this.change = false;
     this.addedKeys = [];
     this.removedKeys = [];
@@ -552,13 +558,18 @@ angular.module('altfire', [])
 
   Watcher.prototype.listen = function() {
     if (this.onChange) {
-      this.ref.on('value', this.valueChanged, this);
+      this.refOn('value', this.valueChanged);
     }
     if (this.onCollectionChange) {
-      this.ref.on('child_added', this.childAdded, this);
-      this.ref.on('child_removed', this.childRemoved, this);
-      this.ref.on('child_moved', this.childMoved, this);
+      this.refOn('child_added', this.childAdded);
+      this.refOn('child_removed', this.childRemoved);
+      this.refOn('child_moved', this.childMoved);
     }
+  };
+
+  Watcher.prototype.refOn = function(eventType, callback) {
+    if (this.onError) this.ref.on(eventType, callback, this.onError, this);
+    else this.ref.on(eventType, callback, this);
   };
 
   Watcher.prototype.unlisten = function() {
@@ -625,7 +636,8 @@ angular.module('altfire', [])
   return self;
 
   function Fire(
-      scope, name, connectionFlavor, ref, filterFlavor, filterRef, filterValueExtractor, digest) {
+      scope, name, connectionFlavor, ref, filterFlavor, filterRef, filterValueExtractor, digest,
+      onError) {
     var self = {};
     var listeners = {};
     filterValueExtractor = filterValueExtractor || angular.identity;
@@ -680,7 +692,7 @@ angular.module('altfire', [])
       if (!listeners[targetName]) listeners[targetName] = {};
       if (!listeners[targetName][event]) listeners[targetName][event] = [];
       listeners[targetName][event].push(callback);
-      target.on(event, callback);
+      target.on(event, callback, onError);
     }
 
     function removeListeners(target) {
@@ -754,9 +766,9 @@ angular.module('altfire', [])
 
       // Update objects instead of just setting (not sure why, angularFire does this so we do too)
       if (angular.isObject(newValue) && !angular.isArray(newValue)) {
-        childRef.update(newValue);
+        childRef.update(newValue, function(error) {if (error) return onError(error);});
       } else {
-        childRef.set(newValue);
+        childRef.set(newValue, function(error) {if (error) return onError(error);});
       }
     }
 
