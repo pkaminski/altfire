@@ -54,7 +54,7 @@ angular.module('altfire', [])
   };
 
   function normalizeSnapshotValue(snap) {
-    var value = normalizeSnapshotValueHelper(snap.ref().toString(), snap.name(), snap.val());
+    var value = normalizeSnapshotValueHelper(snap.ref().toString(), snap.key(), snap.val());
     if (snap.hasChildren() && snap.getPriority() !== null) {
       Object.defineProperty(value, '.priority', {value: snap.getPriority()});
     }
@@ -95,7 +95,7 @@ angular.module('altfire', [])
    * @return {Object}       The decorated value.  May be a new object.
    */
   self.decorate = function(ref, value) {
-    return normalizeSnapshotValueHelper(ref.toString(), ref.name(), value);
+    return normalizeSnapshotValueHelper(ref.toString(), ref.key(), value);
   };
 
   /**
@@ -508,7 +508,7 @@ angular.module('altfire', [])
    * @return {string} A unique key.
    */
   self.generateUniqueKey = function() {
-    return new Firebase(root).push().name();
+    return new Firebase(root).push().key();
   };
 
   function Watcher(watch, handle, scope, onError) {
@@ -593,25 +593,25 @@ angular.module('altfire', [])
   };
 
   Watcher.prototype.childAdded = function(snap) {
-    this.addedKeys.push(snap.name());
-    var k = this.removedKeys.indexOf(snap.name());
+    this.addedKeys.push(snap.key());
+    var k = this.removedKeys.indexOf(snap.key());
     if (k >= 0) this.removedKeys.splice(k, 1);
     this.fireChangesAsync();
   };
 
   Watcher.prototype.childRemoved = function(snap) {
-    this.removedKeys.push(snap.name());
-    var k = this.addedKeys.indexOf(snap.name());
+    this.removedKeys.push(snap.key());
+    var k = this.addedKeys.indexOf(snap.key());
     if (k >= 0) this.addedKeys.splice(k, 1);
-    k = this.movedKeys.indexOf(snap.name());
+    k = this.movedKeys.indexOf(snap.key());
     if (k >= 0) this.movedKeys.splice(k, 1);
-    k = this.allKeys.indexOf(snap.name());
+    k = this.allKeys.indexOf(snap.key());
     if (k >= 0) this.allKeys.splice(k, 1);
     this.fireChangesAsync();
   };
 
   Watcher.prototype.childMoved = function(snap) {
-    this.movedKeys.push(snap.name());
+    this.movedKeys.push(snap.key());
     this.fireChangesAsync();
   };
 
@@ -740,7 +740,7 @@ angular.module('altfire', [])
           }
         });
         addListener(filterRef, 'child_removed', function(snap) {
-          setWhitelistedKey(snap.name(), false);
+          setWhitelistedKey(snap.key(), false);
         });
       } else if (filterFlavor === 'viaIds') {
         scope[name] = scope[name] || {};
@@ -857,19 +857,19 @@ angular.module('altfire', [])
       addListener(watchRef, 'child_added', function(snap) {
         var value = normalizeSnapshotValue(snap);
         // For objects, watch each child.
-        if (snap.hasChildren()) firebaseBindRef(path.concat(snap.name()));
-        invokeChange('child_added', path, snap.name(), value);
+        if (snap.hasChildren()) firebaseBindRef(path.concat(snap.key()));
+        invokeChange('child_added', path, snap.key(), value);
       });
 
       addListener(watchRef, 'child_removed', function(snap) {
-        firebaseUnbindRef(path.concat(snap.name()), normalizeSnapshotValue(snap));
-        invokeChange('child_removed', path, snap.name());
+        firebaseUnbindRef(path.concat(snap.key()), normalizeSnapshotValue(snap));
+        invokeChange('child_removed', path, snap.key());
       });
 
       addListener(watchRef, 'child_changed', function(snap) {
         // Only call changes at the leaves, otherwise ignore.  Use raw snap.val() here because the
         // value is guaranteed to be primitive or null.
-        if (!snap.hasChildren()) invokeChange('child_changed', path, snap.name(), snap.val());
+        if (!snap.hasChildren()) invokeChange('child_changed', path, snap.key(), snap.val());
       });
 
       if (onValue) {
