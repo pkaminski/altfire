@@ -330,7 +330,9 @@ angular.module('altfire', [])
     if (viaFlavor && (connectionFlavor === 'once' || connectionFlavor === 'noop')) {
       throw new Error('Cannot combine "' + viaFlavor + '" with "once" or "noop".');
     }
-    if (args.watch && viaFlavor && viaFlavor !== 'via') {
+    // Warning: can't just check args.watch here because Firefox defines Object.prototype.watch as
+    // a non-standard function!
+    if (args.hasOwnProperty('watch') && viaFlavor && viaFlavor !== 'via') {
       throw new Error('Cannot yet combine "' + viaFlavor + '" with "watch".');
     }
     if (args.viaValueExtractor && viaFlavor !== 'viaValues') {
