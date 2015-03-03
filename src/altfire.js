@@ -768,9 +768,9 @@ angular.module('altfire', [])
 
       // Update objects instead of just setting (not sure why, angularFire does this so we do too)
       if (angular.isObject(newValue) && !angular.isArray(newValue)) {
-        childRef.update(newValue, function(error) {if (error) return onError(error);});
+        childRef.update(newValue, function(error) {if (error && onError) return onError(error);});
       } else {
-        childRef.set(newValue, function(error) {if (error) return onError(error);});
+        childRef.set(newValue, function(error) {if (error && onError) return onError(error);});
       }
     }
 
