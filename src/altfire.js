@@ -3,44 +3,62 @@ angular.module('altfire', [])
 /**
  * The main Firebase/Angular adapter service.
  */
-.factory('fire', ['$interpolate', '$q', '$timeout', '$rootScope', 'orderByFilter', 'fireHelpers',
+.provider('fire', function() {
+
+var root = null;
+var defaultConstructorMap = {};
+
+/**
+ * Sets the default root for all Firebase data paths that don't include a host. You probably
+ * want to set a root when your app initializes. Note that no distinction is made between
+ * relative and absolute paths -- all have the full root prepended if they lack a host.
+ * @param {string} rootUrl The root URL, usually something like 'https://foo.firebaseio.com' but
+ * can also include a path component.
+ */
+this.setDefaultRoot = function(rootUrl) {
+  if (!angular.isString(rootUrl)) {
+    rootUrl = rootUrl.toString();
+  }
+  if (rootUrl.search(/^https?:\/\//) !== 0) {
+    throw new Error('Firebase root URL must start with http(s)://, got: ' + rootUrl);
+  }
+  if (rootUrl.charAt(rootUrl.length - 1) !== '/') {
+    rootUrl += '/';
+  }
+  root = rootUrl;
+};
+
+this.setDefaultConstructorMap = function(constructorMap) {
+  defaultConstructorMap = angular.copy(constructorMap);
+};
+
+
+this.$get = ['$interpolate', '$q', '$timeout', '$rootScope', 'orderByFilter', 'fireHelpers',
     function($interpolate, $q, $timeout, $rootScope, orderByFilter, fireHelpers) {
   'use strict';
   var self = {};
-  var root = null;
-  var defaultConstructorMap = {};
-  var constructorTable = null;
-  var pathCache = {};
-  var pathCacheMaxSize = 5000;
+  var constructorTable = [];
 
-  self.setDefaultConstructorMap = function(constructorMap) {
-    defaultConstructorMap = angular.copy(constructorMap);
-    constructorTable = null;
-  };
-
-  var getConstructorTable = function() {
-    if (!constructorTable) {
-      constructorTable = [];
-      angular.forEach(defaultConstructorMap, function(constructor, path) {
-        var pathVariables = [];
-        var pathTemplate = prefixRoot(path, true).replace(/\b\$[^\/]+/g, function(match) {
-          pathVariables.push(match);
-          return '([^/]+)';
-        });
-        constructorTable.push({
-          constructor: constructor,
-          variables: pathVariables,
-          regex: new RegExp('^' + pathTemplate.replace(/[$-.?[-^{|}]/g, '\\$&') + '$')
-        });
+  function buildConstructorTable() {
+    constructorTable = [];
+    angular.forEach(defaultConstructorMap, function(constructor, path) {
+      var pathVariables = [];
+      var pathTemplate = prefixRoot(path, true).replace(/\b\$[^\/]+/g, function(match) {
+        pathVariables.push(match);
+        return '([^/]+)';
       });
-    }
-    return constructorTable;
-  };
+      constructorTable.push({
+        constructor: constructor,
+        variables: pathVariables,
+        regex: new RegExp('^' + pathTemplate.replace(/[$-.?[-^{|}]/g, '\\$&') + '$')
+      });
+    });
+  }
+  buildConstructorTable();
 
   var createObject = function(path) {
-    var table = getConstructorTable();
-    for (var i = 0; i < table.length; i++) {
-      var descriptor = table[i];
+    for (var i = 0; i < constructorTable.length; i++) {
+      var descriptor = constructorTable[i];
       descriptor.regex.lastIndex = 0;
       var match = descriptor.regex.exec(path);
       if (match) {
@@ -98,51 +116,20 @@ angular.module('altfire', [])
     return normalizeSnapshotValueHelper(ref.toString(), ref.key(), value);
   };
 
-  /**
-   * Sets the default root for all Firebase data paths that don't include a host. You probably
-   * want to set a root when your app initializes. Note that no distinction is made between
-   * relative and absolute paths -- all have the full root prepended if they lack a host.
-   * @param {string} rootUrl The root URL, usually something like 'https://foo.firebaseio.com' but
-   * can also include a path component.
-   */
-  self.setDefaultRoot = function(rootUrl) {
-    if (!angular.isString(rootUrl)) {
-      rootUrl = rootUrl.toString();
-    }
-    if (rootUrl.search(/^https?:\/\//) !== 0) {
-      throw new Error('Firebase root URL must start with http(s)://, got: ' + rootUrl);
-    }
-    if (rootUrl.charAt(rootUrl.length - 1) !== '/') {
-      rootUrl += '/';
-    }
-    connectServerTimeOffset(rootUrl, root);
-    root = rootUrl;
-    pathCache = {};
-    constructorTable = null;
-  };
-
   var serverTimeOffset = 0;
-
-  function connectServerTimeOffset(newRoot, oldRoot) {
-    function getTimeOffsetRef(root) {
-      return new Firebase(root.slice(0, root.indexOf('/', 8) + 1) + '.info/serverTimeOffset');
-    }
-    if (oldRoot) getTimeOffsetRef(oldRoot).off('value', updateServerTimeOffset);
-    if (newRoot) getTimeOffsetRef(newRoot).on('value', updateServerTimeOffset);
-  }
+  var timeOffsetRef =
+    new Firebase(root.slice(0, root.indexOf('/', 8) + 1) + '.info/serverTimeOffset');
+  timeOffsetRef.on('value', updateServerTimeOffset);
 
   function updateServerTimeOffset(snap) {
     serverTimeOffset = snap.val();
   }
 
   self.getDefaultServerTimestamp = function() {
-    return new Date().getTime() + serverTimeOffset;
+    return Date.now() + serverTimeOffset;
   };
 
   function prefixRoot(path, noWatch) {
-    if (path in pathCache) return pathCache[path];
-    // Simple eviction policy: if cache gets too large, wipe it and start from scratch.
-    if (Object.keys(pathCache).length >= pathCacheMaxSize) pathCache = {};
     if (angular.isString(path)) {
       var isFullPath = path.slice(0, 8) === 'https://';
       if (path && ((isFullPath ? path.slice(8) : path).indexOf('//') !== -1 ||
@@ -155,14 +142,11 @@ angular.module('altfire', [])
             console.log(e.stack.replace(/\n[^\n]*(altfire|angular(\.min)?)\.js[^\n]*$/gm, ''));
           }
         }
-        pathCache[path] = null;
-        return null;
+        return undefined;
       }
       if (!isFullPath) {
-        if (!root) {
-          throw new Error('Relative path given and default root not specified.');
-        }
-        path = pathCache[path] = root + path;
+        if (!root) throw new Error('Relative path given and default root not specified.');
+        path = root + path;
       }
     }
     return path;
@@ -176,15 +160,10 @@ angular.module('altfire', [])
     var pathInterpolator = angular.isString(path) ? $interpolate(path, true) : undefined;
     var viaPathInterpolator = angular.isString(viaPath) ? $interpolate(viaPath, true) : undefined;
 
-    function interpolatePaths(scope) {
-      return [
-        prefixRoot(pathInterpolator ? pathInterpolator(scope) : path, noWatch),
-        prefixRoot(viaPathInterpolator ? viaPathInterpolator(scope) : viaPath, noWatch),
-      ];
-    }
-
-    if (!noWatch && scope.$watch) {
-      scope.$watch(interpolatePaths, function(paths) {
+    if (!noWatch && scope.$watch && (pathInterpolator || viaPathInterpolator)) {
+      scope.$watchGroup([pathInterpolator, viaPathInterpolator], function(paths) {
+        paths[0] = prefixRoot(pathInterpolator ? paths[0] : path, noWatch);
+        paths[1] = prefixRoot(viaPathInterpolator ? paths[1] : viaPath, noWatch);
         if (!(initialPaths && angular.equals(paths, initialPaths))) {
           initialPaths = null;
           callback.apply(null, paths);
@@ -195,7 +174,10 @@ angular.module('altfire', [])
     // immediately.  But be careful -- it's possible for the interpolated paths to change between
     // now and the first watcher callback, in which case we'd miss an update unless we compare
     // against the paths we actually computed here.
-    var initialPaths = interpolatePaths(scope);
+    var initialPaths = [
+      prefixRoot(pathInterpolator ? pathInterpolator(scope) : path, noWatch),
+      prefixRoot(viaPathInterpolator ? viaPathInterpolator(scope) : viaPath, noWatch)
+    ];
     callback.apply(null, initialPaths);
   }
 
@@ -526,7 +508,7 @@ angular.module('altfire', [])
       $rootScope, $rootScope.$evalAsync, angular.bind(this, this.fireChanges));
 
     var childInterpolator = watch.child ? $interpolate(watch.child, true) : null;
-    $rootScope.$watch(function() {
+    $rootScope.$watch(function watchWatcherRef() {
       var ref = handle.ref();
       if (!ref) return null;
       var path = ref.toString();
@@ -542,7 +524,7 @@ angular.module('altfire', [])
         path = path + '/' + childPath;
       }
       return path;
-    }, angular.bind(this, function(path) {
+    }, angular.bind(this, function handleWatcherRefChange(path) {
       if (this.ref) this.unlisten();
       this.ref = path ? new Firebase(path) : null;
       this.change = true;
@@ -617,7 +599,7 @@ angular.module('altfire', [])
     this.fireChangesAsync();
   };
 
-  Watcher.prototype.fireChanges = function() {
+  Watcher.prototype.fireChanges = function fireWatcherChanges() {
     if (this.onChange && this.change) {
       this.change = false;
       this.onChange();
@@ -913,7 +895,9 @@ angular.module('altfire', [])
       digest();
     }
   }
-}])
+}];
+
+})
 
 
 .filter('escapeFirebase', function() {
