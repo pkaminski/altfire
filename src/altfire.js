@@ -117,12 +117,11 @@ this.$get = ['$interpolate', '$q', '$timeout', '$rootScope', 'orderByFilter', 'f
   };
 
   var serverTimeOffset = 0;
-  var timeOffsetRef =
-    new Firebase(root.slice(0, root.indexOf('/', 8) + 1) + '.info/serverTimeOffset');
-  timeOffsetRef.on('value', updateServerTimeOffset);
 
-  function updateServerTimeOffset(snap) {
-    serverTimeOffset = snap.val();
+  if (root) {
+    var timeOffsetRef =
+      new Firebase(root.slice(0, root.indexOf('/', 8) + 1) + '.info/serverTimeOffset');
+    timeOffsetRef.on('value', function(snap) {serverTimeOffset = snap.val();});
   }
 
   self.getDefaultServerTimestamp = function() {
