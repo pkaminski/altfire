@@ -38,6 +38,8 @@ this.$get = ['$interpolate', '$q', '$timeout', '$rootScope', 'orderByFilter', 'f
   'use strict';
   var self = {};
   var constructorTable = [];
+  var serverTimeOffset = 0;
+  var reportedBadPaths = {};
 
   function buildConstructorTable() {
     constructorTable = [];
@@ -116,8 +118,6 @@ this.$get = ['$interpolate', '$q', '$timeout', '$rootScope', 'orderByFilter', 'f
     return normalizeSnapshotValueHelper(ref.toString(), ref.key(), value);
   };
 
-  var serverTimeOffset = 0;
-
   if (root) {
     var timeOffsetRef =
       new Firebase(root.slice(0, root.indexOf('/', 8) + 1) + '.info/serverTimeOffset');
@@ -137,8 +137,11 @@ this.$get = ['$interpolate', '$q', '$timeout', '$rootScope', 'orderByFilter', 'f
           throw new Error('Invalid path interpolation: ' + path);
         } catch(e) {
           if (noWatch) throw e;
-          if (/\baltfire\b/.test(e.stack)) {
-            console.log(e.stack.replace(/\n[^\n]*(altfire|angular(\.min)?)\.js[^\n]*$/gm, ''));
+          if (!(path in reportedBadPaths)) {
+            reportedBadPaths[path] = true;
+            if (/\baltfire\b/.test(e.stack)) {
+              console.log(e.stack.replace(/\n[^\n]*(altfire|angular(\.min)?)\.js[^\n]*$/gm, ''));
+            }
           }
         }
         return undefined;
