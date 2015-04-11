@@ -353,7 +353,9 @@ this.$get = ['$interpolate', '$q', '$timeout', '$rootScope', 'orderByFilter', 'f
           isReady: true,
           ready: function() {return $q.when();},
         };
+        // TODO: support via*
         fire[refName] = applyQuery(new Firebase(iPath));
+        notifyWatchers(fire.ref());
       } else if (connectionFlavor === 'once' && iPath) {
         var readyDeferred = $q.defer();
         var myFire = fire = {
@@ -361,7 +363,9 @@ this.$get = ['$interpolate', '$q', '$timeout', '$rootScope', 'orderByFilter', 'f
           isReady: false,
           ready: function() {return readyDeferred.promise;},
         };
+        // TODO: support via*
         fire[refName] = applyQuery(new Firebase(iPath));
+        notifyWatchers(fire.ref());
         fire[refName].once('value', function(snap) {
           if (fire !== myFire) return;  // path binding changed while we were getting the value
           args.scope[args.name] = normalizeSnapshotValue(snap);
