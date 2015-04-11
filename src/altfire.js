@@ -327,6 +327,15 @@ this.$get = ['$interpolate', '$q', '$timeout', '$rootScope', 'orderByFilter', 'f
     }
     args.digest = args.digest || _.bind($rootScope.$evalAsync, $rootScope);
 
+    var watchers = [];
+    angular.forEach(args.watch, function(watch) {
+      watchers.push(new Watcher(watch, args.pathScope || args.scope, args.digest, args.onError));
+    });
+
+    function notifyWatchers(ref) {
+      angular.forEach(watchers, function(watcher) {watcher.updateParentRef(ref);});
+    }
+
     function applyQuery(ref) {
       if (args.query) ref = args.query(ref);
       return ref;
@@ -358,26 +367,27 @@ this.$get = ['$interpolate', '$q', '$timeout', '$rootScope', 'orderByFilter', 'f
           args.scope[args.name] = normalizeSnapshotValue(snap);
           fire.isReady = true;
           readyDeferred.resolve();
+          args.digest();
         }, args.onError);
       } else if (iPath && (!viaPath || iViaPath)) {
         if (iViaPath) {
           fire = Fire(
             args.scope, args.name, connectionFlavor, iPath, viaFlavor,
-            applyQuery(new Firebase(iViaPath)), args.viaValueExtractor, args.digest, args.onError);
+            applyQuery(new Firebase(iViaPath)), args.viaValueExtractor, args.digest, args.onError,
+            notifyWatchers);
         } else if (viaFlavor === 'viaIds') {
           fire = Fire(
             args.scope, args.name, connectionFlavor, iPath, viaFlavor, args.viaIds, null,
-            args.digest, args.onError);
+            args.digest, args.onError, notifyWatchers);
         } else {
           fire = Fire(
             args.scope, args.name, connectionFlavor, applyQuery(new Firebase(iPath)), null, null,
-            null, args.digest, args.onError);
+            null, args.digest, args.onError, notifyWatchers);
         }
       }
       if (fire) fireDeferred.resolve(fire);
     });
 
-    var watchers = [];
     var handle = {
       destroy: function(keepValue) {
         if (fire) fire.destroy(keepValue);
@@ -412,10 +422,6 @@ this.$get = ['$interpolate', '$q', '$timeout', '$rootScope', 'orderByFilter', 'f
     if (viaFlavor) {
       handle[viaFlavor] = function() {return fire && fire.filterValue;};
     }
-
-    angular.forEach(args.watch, function(watch) {
-      watchers.push(new Watcher(watch, handle, args.pathScope || args.scope, args.onError));
-    });
 
     return handle;
   };
@@ -497,7 +503,8 @@ this.$get = ['$interpolate', '$q', '$timeout', '$rootScope', 'orderByFilter', 'f
     return new Firebase(root).push().key();
   };
 
-  function Watcher(watch, handle, scope, onError) {
+  function Watcher(watch, scope, digest, onError) {
+    this.digest = digest;
     this.onChange = watch.onChange;
     this.onCollectionChange = watch.onCollectionChange;
     this.onError = onError;
@@ -506,41 +513,56 @@ this.$get = ['$interpolate', '$q', '$timeout', '$rootScope', 'orderByFilter', 'f
     this.removedKeys = [];
     this.movedKeys = [];
     this.allKeys = [];
-    this.fireChangesAsync = angular.bind(
-      $rootScope, $rootScope.$evalAsync, angular.bind(this, this.fireChanges));
 
-    var childInterpolator = watch.child ? $interpolate(watch.child, true) : null;
-    $rootScope.$watch(function watchWatcherRef() {
-      var ref = handle.ref();
-      if (!ref) return null;
-      var path = ref.toString();
-      if (watch.child) {
-        var childPath = watch.child;
-        if (childInterpolator) {
-          childPath = childInterpolator(scope);
-          if (childPath.indexOf('//') !== -1 || childPath.charAt(childPath.length - 1) === '/' ||
-              childPath.charAt(0) === '/') {
-            return null;
-          }
+    if (watch.child) {
+      var childInterpolator = watch.child && $interpolate(watch.child, true);
+      if (childInterpolator) {
+        if (scope.$watch) {
+          scope.$watch(childInterpolator, angular.bind(this, function(childPath) {
+            if (childPath.indexOf('//') !== -1 || childPath.charAt(childPath.length - 1) === '/' ||
+                childPath.charAt(0) === '/') {
+              this.childPath = null;
+            } else {
+              this.childPath = childPath;
+            }
+            this.updateRef();
+          }));
+        } else {
+          this.childPath = childInterpolator(scope);
         }
-        path = path + '/' + childPath;
-      }
-      return path;
-    }, angular.bind(this, function handleWatcherRefChange(path) {
-      if (this.ref) this.unlisten();
-      this.ref = path ? new Firebase(path) : null;
-      this.change = true;
-      this.addedKeys = [];
-      this.movedKeys = [];
-      this.removedKeys = this.allKeys;
-      this.allKeys = [];
-      if (this.ref) {
-        this.listen();  // value event will come in and fire changes
       } else {
-        this.fireChangesAsync();
+        this.childPath = watch.child;
       }
-    }));
+    }
   }
+
+  Watcher.prototype.updateParentRef = function(ref) {
+    this.parentPath = ref && ref.toString() || null;
+    this.updateRef();
+  };
+
+  Watcher.prototype.updateRef = function() {
+    var path;
+    if (this.childPath === null || this.parentPath === null) {
+      path = null;
+    } else {
+      path = this.parentPath;
+      if (this.childPath) path += '/' + this.childPath;
+    }
+    if (path ? this.ref && this.ref.toString() === path : !this.ref) return;
+    if (this.ref) this.unlisten();
+    this.ref = path ? new Firebase(path) : null;
+    this.change = true;
+    this.addedKeys = [];
+    this.movedKeys = [];
+    this.removedKeys = this.allKeys;
+    this.allKeys = [];
+    if (this.ref) {
+      this.listen();  // value event will come in and fire changes
+    } else {
+      this.fireChangesAsync();
+    }
+  };
 
   Watcher.prototype.listen = function() {
     if (this.onChange) {
@@ -601,6 +623,13 @@ this.$get = ['$interpolate', '$q', '$timeout', '$rootScope', 'orderByFilter', 'f
     this.fireChangesAsync();
   };
 
+  Watcher.prototype.fireChangesAsync = function() {
+    $timeout(angular.bind(this, function() {
+      this.fireChanges();
+      this.digest();
+    }), 0, false);
+  };
+
   Watcher.prototype.fireChanges = function fireWatcherChanges() {
     if (this.onChange && this.change) {
       this.change = false;
@@ -623,7 +652,7 @@ this.$get = ['$interpolate', '$q', '$timeout', '$rootScope', 'orderByFilter', 'f
 
   function Fire(
       scope, name, connectionFlavor, ref, filterFlavor, filterRef, filterValueExtractor, digest,
-      onError) {
+      onError, onRefChange) {
     var self = {};
     var listeners = {};
     filterValueExtractor = filterValueExtractor || angular.identity;
@@ -647,6 +676,7 @@ this.$get = ['$interpolate', '$q', '$timeout', '$rootScope', 'orderByFilter', 'f
       //No filterRef? listen to the root
       firebaseBindRef([], onRootValue);
       self.ref = ref;
+      if (onRefChange) onRefChange(self.ref);
     }
 
     var reporter, unbindWatch;
@@ -707,6 +737,7 @@ this.$get = ['$interpolate', '$q', '$timeout', '$rootScope', 'orderByFilter', 'f
           self.filterValue = snap.val();  // it's primitive
           self.ref = ref = new Firebase(filterPath.replace('#', self.filterValue));
           firebaseBindRef([], onRootValue);
+          if (onRefChange) onRefChange(self.ref);
         });
       } else if (filterFlavor === 'viaKeys' || filterFlavor === 'viaValues') {
         scope[name] = scope[name] || {};
@@ -819,9 +850,8 @@ this.$get = ['$interpolate', '$q', '$timeout', '$rootScope', 'orderByFilter', 'f
     function setReady() {
       if (!self.isReady) {
         self.isReady = true;
-        $timeout(function() {
-          readyDeferred.resolve();
-        });
+        readyDeferred.resolve();
+        digest();
       }
     }
 
