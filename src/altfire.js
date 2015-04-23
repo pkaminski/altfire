@@ -946,6 +946,16 @@ this.$get = ['$interpolate', '$q', '$timeout', '$rootScope', 'orderByFilter', 'f
 })
 
 
+.filter('unescapeFirebase', function() {
+  'use strict';
+  return function(name) {
+    return name.toString().replace(/\\[0-9a-f]{2}/gi, function(code) {
+      return String.fromCharCode(parseInt(code.slice(1), 16));
+    });
+  };
+})
+
+
 .factory('fireHelpers', [function() {
   'use strict';
   var self = {};
