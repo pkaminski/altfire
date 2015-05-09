@@ -1018,6 +1018,10 @@ this.$get = ['$interpolate', '$q', '$timeout', '$rootScope', 'orderByFilter', 'f
       return merged;
     } else if ((angular.isUndefined(remote) || remote === null) && angular.isDefined(local)) {
       return local;
+    } else if (remote === null) {
+      // Return undefined instead of null for top-level values to work nicely with Angular's
+      // one-time binding mechanism.
+      return;
     } else {
       //Eg if remote is a primitive this will fire
       return remote;
