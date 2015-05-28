@@ -341,7 +341,7 @@ this.$get = ['$interpolate', '$q', '$timeout', '$rootScope', 'orderByFilter', 'f
       return ref;
     }
 
-    function makeExpandRef(fire, refName) {
+    function makeExpandRef(refName) {
       return function() {
         var ref = fire && fire[refName];
         if (ref) {
@@ -414,8 +414,8 @@ this.$get = ['$interpolate', '$q', '$timeout', '$rootScope', 'orderByFilter', 'f
     };
     if (args.scope.$on) args.scope.$on('$destroy', handle.destroy);
 
-    if (refName) handle[refName] = makeExpandRef(fire, refName);
-    if (viaFlavor === 'via') handle.ref = makeExpandRef(fire, 'ref');
+    if (refName) handle[refName] = makeExpandRef(refName);
+    if (viaFlavor === 'via') handle.ref = makeExpandRef('ref');
     if (viaFlavor) {
       handle[viaFlavor] = function() {return fire && fire.filterValue;};
     }
