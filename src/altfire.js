@@ -341,6 +341,17 @@ this.$get = ['$interpolate', '$q', '$timeout', '$rootScope', 'orderByFilter', 'f
       return ref;
     }
 
+    function makeExpandRef(fire, refName) {
+      return function() {
+        var ref = fire && fire[refName];
+        if (ref) {
+          if (ref.ref) ref = ref.ref();
+          if (arguments.length) ref = ref.child(Array.prototype.slice.call(arguments, 0).join('/'));
+        }
+        return ref;
+      };
+    }
+
     var fire, fireDeferred = $q.defer();
     expandPath(args.pathScope || args.scope, path, viaPath, function(iPath, iViaPath) {
       if (fire) {
@@ -355,7 +366,7 @@ this.$get = ['$interpolate', '$q', '$timeout', '$rootScope', 'orderByFilter', 'f
         };
         // TODO: support via*
         fire[refName] = applyQuery(new Firebase(iPath));
-        notifyWatchers(fire.ref());
+        notifyWatchers(fire[refName]);
       } else if (connectionFlavor === 'once' && iPath) {
         var readyDeferred = $q.defer();
         var myFire = fire = {
@@ -365,7 +376,7 @@ this.$get = ['$interpolate', '$q', '$timeout', '$rootScope', 'orderByFilter', 'f
         };
         // TODO: support via*
         fire[refName] = applyQuery(new Firebase(iPath));
-        notifyWatchers(fire.ref());
+        notifyWatchers(fire[refName]);
         fire[refName].once('value', function(snap) {
           if (fire !== myFire) return;  // path binding changed while we were getting the value
           args.scope[args.name] = normalizeSnapshotValue(snap);
@@ -403,26 +414,8 @@ this.$get = ['$interpolate', '$q', '$timeout', '$rootScope', 'orderByFilter', 'f
     };
     if (args.scope.$on) args.scope.$on('$destroy', handle.destroy);
 
-    if (refName) {
-      handle[refName] = function() {
-        var ref = fire && fire[refName];
-        if (ref) {
-          if (ref.ref) ref = ref.ref();
-          if (arguments.length) ref = ref.child(Array.prototype.slice.call(arguments, 0).join('/'));
-        }
-        return ref;
-      };
-    }
-    if (viaFlavor === 'via') {
-      handle.ref = function() {
-        var ref = fire && fire.ref;
-        if (ref) {
-          if (ref.ref) ref = ref.ref();
-          if (arguments.length) ref = ref.child(Array.prototype.slice.call(arguments, 0).join('/'));
-        }
-        return ref;
-      };
-    }
+    if (refName) handle[refName] = makeExpandRef(fire, refName);
+    if (viaFlavor === 'via') handle.ref = makeExpandRef(fire, 'ref');
     if (viaFlavor) {
       handle[viaFlavor] = function() {return fire && fire.filterValue;};
     }
