@@ -685,9 +685,7 @@ this.$get = ['$interpolate', '$q', '$timeout', '$rootScope', 'orderByFilter', 'f
     return self;
 
     function destroy(keepValue) {
-      angular.forEach(listeners, function(submap, targetName) {
-        removeListeners(new Firebase(targetName));
-      });
+      angular.forEach(Object.keys(listeners), removeListeners);
       if (filterFlavor === 'viaKeys' || filterFlavor === 'viaValues') {
         angular.forEach(scope[name], function(value, key) {
           firebaseUnbindRef([key], value);
@@ -708,16 +706,29 @@ this.$get = ['$interpolate', '$q', '$timeout', '$rootScope', 'orderByFilter', 'f
       target.on(event, callback, onError);
     }
 
-    function removeListeners(target) {
-      var events = listeners[target.toString()];
-      if (events) {
-        angular.forEach(events, function(callbacks, event) {
-          angular.forEach(callbacks, function(callback) {
-            target.off(event, callback);
-          });
+    function removeListeners(target, andDescendants) {
+      target = target.toString();
+      var targets = [target];
+      if (andDescendants) {
+        target += '/';
+        angular.forEach(listeners, function(unused, key) {
+          if (key.slice(0, target.length) === target) targets.push(key);
         });
       }
-      delete listeners[target.toString()];
+      angular.forEach(targets, function(key) {
+        var events = listeners[key];
+        if (!events) return;
+        angular.forEach(events, function(callbacks, event) {
+          angular.forEach(callbacks, function(callback) {
+            (new Firebase(key)).off(event, callback);
+          });
+        });
+        delete listeners[key];
+      });
+    }
+
+    function hasListeners(target) {
+      return target.toString() in listeners;
     }
 
     function setupFilterRef() {
@@ -867,22 +878,26 @@ this.$get = ['$interpolate', '$q', '$timeout', '$rootScope', 'orderByFilter', 'f
       path = path || [];
       var watchRef = getRefFromPath(path);
 
-      addListener(watchRef, 'child_added', function(snap) {
-        var value = normalizeSnapshotValue(snap);
-        // For objects, watch each child.
-        if (snap.hasChildren()) firebaseBindRef(path.concat(snap.key()));
-        invokeChange('child_added', path, snap.key(), value);
+      addListener(watchRef, 'child_added', function childAddedListener(snap) {
+        invokeChange(
+          'child_added', path, snap.key(), function() {return normalizeSnapshotValue(snap);});
       });
 
-      addListener(watchRef, 'child_removed', function(snap) {
-        firebaseUnbindRef(path.concat(snap.key()), normalizeSnapshotValue(snap));
+      addListener(watchRef, 'child_removed', function childRemovedListener(snap) {
+        firebaseUnbindRef(path.concat(snap.key()));
         invokeChange('child_removed', path, snap.key());
       });
 
-      addListener(watchRef, 'child_changed', function(snap) {
-        // Only call changes at the leaves, otherwise ignore.  Use raw snap.val() here because the
-        // value is guaranteed to be primitive or null.
-        if (!snap.hasChildren()) invokeChange('child_changed', path, snap.key(), snap.val());
+      addListener(watchRef, 'child_changed', function childChangedListener(snap) {
+        if (snap.hasChildren()) {
+          // For changes up the tree, find out exactly what changed and install listeners just above
+          mergeAndListen(
+            path, snap.key(), fireHelpers.parsePath(name, path.concat(snap.key()))(scope),
+            normalizeSnapshotValue(snap));
+        } else {
+          // For changes at the leaves, use raw snap.val() since value is guaranteed to be primitive
+          invokeChange('child_changed', path, snap.key(), snap.val());
+        }
       });
 
       if (onValue) {
@@ -892,36 +907,55 @@ this.$get = ['$interpolate', '$q', '$timeout', '$rootScope', 'orderByFilter', 'f
       }
     }
 
-    function firebaseUnbindRef(path, value) {
-      path = path || [];
-      var childRef = getRefFromPath(path);
-      // Unbind this ref, then if the value removed is an object, unbind anything watching
-      // all of the object's child key/value pairs.
-      // Eg if we remove an object { a: 1, b: { c: { d: 'e' } } }, it should call .off()
-      // on the parent, a/b, a/b, and a/b/c
-      if (angular.isObject(value)) {
-        angular.forEach(value, function(childValue, childKey) {
-          if (!angular.isString(childKey) || childKey.charAt(0) !== '$') {
-            firebaseUnbindRef(path.concat(childKey), childValue);
-          }
-        });
-      }
-      removeListeners(childRef);
+    function firebaseUnbindRef(path) {
+      removeListeners(getRefFromPath(path || []), true);
     }
 
     function invokeChange(type, path, key, value) {
       var parsed = fireHelpers.parsePath(name, path);
+      var subscope = parsed(scope);
       switch(type) {
         case 'child_removed':
-          fireHelpers.remove(parsed(scope), key, value);
+          fireHelpers.remove(subscope, key);
           if (reporter) fireHelpers.remove(parsed(reporter.savedScope), key);
           break;
         case 'child_added':
+          if (subscope && subscope.hasOwnProperty && subscope.hasOwnProperty(key)) return;
+          /* fall through */
         case 'child_changed':
-          fireHelpers.set(parsed(scope), key, value);
+          if (angular.isFunction(value)) value = value();
+          fireHelpers.set(subscope, key, value);
           if (reporter) fireHelpers.set(parsed(reporter.savedScope), key, angular.copy(value));
       }
       digest();
+    }
+
+    function mergeAndListen(path, key, oldValue, newValue) {
+      if (key.charAt && key.charAt(0) === '$') return;
+      var childPath = path.concat(key);
+      if (hasListeners(getRefFromPath(childPath))) return;
+
+      if (!angular.isObject(newValue) || !angular.isObject(oldValue)) {
+        if (newValue !== oldValue) {
+          invokeChange('child_changed', path, key, newValue);
+          if (!hasListeners(getRefFromPath(path))) firebaseBindRef(path);
+        }
+      } else {
+        // Copy newValue to oldValue and look for changes
+        var childKey;
+        for (childKey in newValue) {
+          if (!newValue.hasOwnProperty(childKey)) continue;
+          mergeAndListen(childPath, childKey, oldValue[childKey], newValue[childKey]);
+        }
+        for (childKey in oldValue) {
+          if (!oldValue.hasOwnProperty(childKey)) continue;
+          if (childKey.charAt && childKey.charAt(0) === '$') continue;
+          if (!newValue.hasOwnProperty(childKey)) {
+            invokeChange('child_removed', childPath, childKey);
+            firebaseUnbindRef(childPath);
+          }
+        }
+      }
     }
   }
 }];
@@ -1094,7 +1128,7 @@ this.$get = ['$interpolate', '$q', '$timeout', '$rootScope', 'orderByFilter', 'f
         }
         //Copy newValue to oldValue and look for changes
         for (childKey in newValue) {
-          if (newValue.hasOwnProperty(childKey) ) {
+          if (newValue.hasOwnProperty(childKey)) {
             compare(oldValue, newValue, childKey, path.concat(key), depth);
           }
         }
