@@ -45,14 +45,15 @@ this.$get = ['$interpolate', '$q', '$timeout', '$rootScope', 'orderByFilter', 'f
     constructorTable = [];
     angular.forEach(defaultConstructorMap, function(constructor, path) {
       var pathVariables = [];
-      var pathTemplate = prefixRoot(path, true).replace(/\b\$[^\/]+/g, function(match) {
+      var pathTemplate = prefixRoot(path, true).replace(/\/\$[^\/]+/g, function(match) {
         pathVariables.push(match);
-        return '([^/]+)';
+        return '\u0001';
       });
       constructorTable.push({
         constructor: constructor,
         variables: pathVariables,
-        regex: new RegExp('^' + pathTemplate.replace(/[$-.?[-^{|}]/g, '\\$&') + '$')
+        regex: new RegExp(
+          '^' + pathTemplate.replace(/[$-.?[-^{|}]/g, '\\$&').replace(/\u0001/g, '/([^/]+)') + '$')
       });
     });
   }
@@ -73,8 +74,8 @@ this.$get = ['$interpolate', '$q', '$timeout', '$rootScope', 'orderByFilter', 'f
     }
   };
 
-  function normalizeSnapshotValue(snap) {
-    var value = normalizeSnapshotValueHelper(snap.ref().toString(), snap.key(), snap.val());
+  function normalizeSnapshotValue(snap, scope) {
+    var value = normalizeSnapshotValueHelper(snap.ref().toString(), snap.key(), snap.val(), scope);
     if (snap.hasChildren() && snap.getPriority() !== null) {
       Object.defineProperty(value, '.priority', {value: snap.getPriority()});
     }
@@ -88,17 +89,18 @@ this.$get = ['$interpolate', '$q', '$timeout', '$rootScope', 'orderByFilter', 'f
     return new Firebase(path);
   }
 
-  function normalizeSnapshotValueHelper(path, key, value) {
+  function normalizeSnapshotValueHelper(path, key, value, scope) {
     var normalValue;
     if (angular.isArray(value)) normalValue = createObject(path) || {};
     else if (angular.isObject(value)) normalValue = createObject(path) || value;
     if (normalValue) {
       Object.defineProperty(normalValue, '$key', {value: key});
       Object.defineProperty(normalValue, '$ref', {value: angular.bind(null, getRefChild, path)});
+      Object.defineProperty(normalValue, '$scope', {value: scope});
       angular.forEach(value, function(item, childKey) {
         if (!(item === null || angular.isUndefined(item))) {
           normalValue[childKey] = normalizeSnapshotValueHelper(
-            path + '/' + childKey, childKey, item);
+            path + '/' + childKey, childKey, item, scope);
         }
       });
     }
@@ -107,15 +109,16 @@ this.$get = ['$interpolate', '$q', '$timeout', '$rootScope', 'orderByFilter', 'f
 
   /**
    * Pretend that a value was retrieved from the given ref, and normalize and decorate it just like
-   * values retrieved from Firebase.  This will turn all arrays into objects, and add a $key
-   * property and $ref method to each object (recursively).  It does not modify the datastore in any
-   * way, but may mutate the value that was passed in.
+   * values retrieved from Firebase.  This will turn all arrays into objects, and adds $key and
+   * $scope properties and a $ref method to each object (recursively).  It does not modify the
+   * datastore in any way, but may mutate the value that was passed in.
    * @param  {Firebase} ref The Firebase reference to which the value should be "attached".
    * @param  {Object} value The value to decorate.
+   * @param  {Object} scope The scope to set as $scope on the value and all descendants.
    * @return {Object}       The decorated value.  May be a new object.
    */
-  self.decorate = function(ref, value) {
-    return normalizeSnapshotValueHelper(ref.toString(), ref.key(), value);
+  self.decorate = function(ref, value, scope) {
+    return normalizeSnapshotValueHelper(ref.toString(), ref.key(), value, scope);
   };
 
   if (root) {
@@ -379,7 +382,7 @@ this.$get = ['$interpolate', '$q', '$timeout', '$rootScope', 'orderByFilter', 'f
         notifyWatchers(fire[refName]);
         fire[refName].once('value', function(snap) {
           if (fire !== myFire) return;  // path binding changed while we were getting the value
-          args.scope[args.name] = normalizeSnapshotValue(snap);
+          args.scope[args.name] = normalizeSnapshotValue(snap, args.scope);
           fire.isReady = true;
           readyDeferred.resolve();
           args.digest();
@@ -750,7 +753,7 @@ this.$get = ['$interpolate', '$q', '$timeout', '$rootScope', 'orderByFilter', 'f
       } else if (filterFlavor === 'viaKeys' || filterFlavor === 'viaValues') {
         scope[name] = scope[name] || {};
         addListener(filterRef, 'value', function(snap) {
-          self.filterValue = normalizeSnapshotValue(snap);
+          self.filterValue = normalizeSnapshotValue(snap, scope);
           if (self.filterValue) {
             angular.forEach(self.filterValue, function(value, key) {
               if (key.charAt(0) !== '$') {
@@ -879,8 +882,9 @@ this.$get = ['$interpolate', '$q', '$timeout', '$rootScope', 'orderByFilter', 'f
       var watchRef = getRefFromPath(path);
 
       addListener(watchRef, 'child_added', function childAddedListener(snap) {
-        invokeChange(
-          'child_added', path, snap.key(), function() {return normalizeSnapshotValue(snap);});
+        invokeChange('child_added', path, snap.key(), function() {
+          return normalizeSnapshotValue(snap, scope);
+        });
       });
 
       addListener(watchRef, 'child_removed', function childRemovedListener(snap) {
@@ -893,7 +897,7 @@ this.$get = ['$interpolate', '$q', '$timeout', '$rootScope', 'orderByFilter', 'f
           // For changes up the tree, find out exactly what changed and install listeners just above
           mergeAndListen(
             path, snap.key(), fireHelpers.parsePath(name, path.concat(snap.key()))(scope),
-            normalizeSnapshotValue(snap));
+            normalizeSnapshotValue(snap, scope));
         } else {
           // For changes at the leaves, use raw snap.val() since value is guaranteed to be primitive
           invokeChange('child_changed', path, snap.key(), snap.val());
@@ -902,7 +906,7 @@ this.$get = ['$interpolate', '$q', '$timeout', '$rootScope', 'orderByFilter', 'f
 
       if (onValue) {
         addListener(watchRef, 'value', function(snap) {
-          onValue(normalizeSnapshotValue(snap));
+          onValue(normalizeSnapshotValue(snap, scope));
         });
       }
     }
