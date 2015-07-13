@@ -1,7 +1,7 @@
 {
   "name": "altfire",
   "main": "src/altfire.js",
-  "version": "0.4.2",
+  "version": "0.4.3",
   "homepage": "https://github.com/pkaminski/altfire",
   "authors": [
     "Piotr Kaminski"

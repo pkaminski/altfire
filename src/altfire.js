@@ -46,7 +46,7 @@ this.$get = ['$interpolate', '$q', '$timeout', '$rootScope', 'orderByFilter', 'f
     angular.forEach(defaultConstructorMap, function(constructor, path) {
       var pathVariables = [];
       var pathTemplate = prefixRoot(path, true).replace(/\/\$[^\/]+/g, function(match) {
-        pathVariables.push(match);
+        pathVariables.push(match.slice(1));
         return '\u0001';
       });
       constructorTable.push({
