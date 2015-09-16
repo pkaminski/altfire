@@ -1,6 +1,6 @@
 {
   "name": "altfire",
-  "version": "0.3.8",
+  "version": "0.4.4",
   "description": "Alternative AngularJS bindings for Firebase",
   "scripts": {
     "setup": "rm -rf bower_components; rm -rf node_modules; npm install; bower install;"

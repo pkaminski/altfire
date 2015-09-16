@@ -895,8 +895,9 @@ this.$get = ['$interpolate', '$q', '$timeout', '$rootScope', 'orderByFilter', 'f
       addListener(watchRef, 'child_changed', function childChangedListener(snap) {
         if (snap.hasChildren()) {
           // For changes up the tree, find out exactly what changed and install listeners just above
+          var parsed = fireHelpers.parsePath(name, path.concat(snap.key()));
           mergeAndListen(
-            path, snap.key(), fireHelpers.parsePath(name, path.concat(snap.key()))(scope),
+            path, snap.key(), parsed(reporter ? reporter.savedScope : scope),
             normalizeSnapshotValue(snap, scope));
         } else {
           // For changes at the leaves, use raw snap.val() since value is guaranteed to be primitive
