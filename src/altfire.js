@@ -955,6 +955,7 @@ this.$get = ['$interpolate', '$q', '$timeout', '$rootScope', 'orderByFilter', 'f
         for (childKey in oldValue) {
           if (!oldValue.hasOwnProperty(childKey)) continue;
           if (childKey.charAt && childKey.charAt(0) === '$') continue;
+          if (oldValue[childKey] && oldValue[childKey].$localGhost) continue;
           if (!newValue.hasOwnProperty(childKey)) {
             invokeChange('child_removed', childPath, childKey);
             firebaseUnbindRef(childPath);
@@ -997,7 +998,7 @@ this.$get = ['$interpolate', '$q', '$timeout', '$rootScope', 'orderByFilter', 'f
   self.remove = function(scope, key) {
     if (angular.isArray(scope)) {
       scope.splice(key, 1);
-    }  else if (scope) {
+    } else if (scope) {
       delete scope[key];
     }
   };
