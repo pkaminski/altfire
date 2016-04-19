@@ -513,6 +513,7 @@ this.$get = ['$interpolate', '$q', '$timeout', '$rootScope', 'orderByFilter', 'f
     this.removedKeys = [];
     this.movedKeys = [];
     this.allKeys = [];
+    this.destroyed = false;
 
     if (watch.child) {
       var childInterpolator = watch.child && $interpolate(watch.child, true);
@@ -592,6 +593,7 @@ this.$get = ['$interpolate', '$q', '$timeout', '$rootScope', 'orderByFilter', 'f
   };
 
   Watcher.prototype.destroy = function() {
+    this.destroyed = true;
     if (this.ref) this.unlisten();
   };
 
@@ -625,6 +627,7 @@ this.$get = ['$interpolate', '$q', '$timeout', '$rootScope', 'orderByFilter', 'f
 
   Watcher.prototype.fireChangesAsync = function() {
     $timeout(angular.bind(this, function() {
+      if (this.destroyed) return;
       this.fireChanges();
       this.digest();
     }), 0, false);
@@ -655,6 +658,7 @@ this.$get = ['$interpolate', '$q', '$timeout', '$rootScope', 'orderByFilter', 'f
       onError, onRefChange) {
     var self = {};
     var listeners = {};
+    var destroyed = false;
     filterValueExtractor = filterValueExtractor || angular.identity;
 
     //Resolved once initial value comes down
@@ -688,6 +692,7 @@ this.$get = ['$interpolate', '$q', '$timeout', '$rootScope', 'orderByFilter', 'f
     return self;
 
     function destroy(keepValue) {
+      destroyed = true;
       angular.forEach(Object.keys(listeners), removeListeners);
       if (filterFlavor === 'viaKeys' || filterFlavor === 'viaValues') {
         angular.forEach(scope[name], function(value, key) {
@@ -784,7 +789,8 @@ this.$get = ['$interpolate', '$q', '$timeout', '$rootScope', 'orderByFilter', 'f
     }
 
     function onLocalChange(path, newValue) {
-      if (!self.isReady && !angular.isObject(newValue) || angular.isUndefined(newValue)) {
+      if (!self.isReady && !angular.isObject(newValue) || angular.isUndefined(newValue) ||
+          destroyed) {
         // will get merged in when remote value first comes in
         return;
       }
@@ -819,6 +825,7 @@ this.$get = ['$interpolate', '$q', '$timeout', '$rootScope', 'orderByFilter', 'f
     //2) if top level was a primitive and now we are to object, reassign
     //3) if top level was object and now we are to primitive, reassign
     function onRootValue(value) {
+      if (destroyed) return;
       if (!self.isReady) {
         //First time value comes, merge it in and push it
         scope[name] = fireHelpers.fireMerge(value, scope[name]);
@@ -840,7 +847,7 @@ this.$get = ['$interpolate', '$q', '$timeout', '$rootScope', 'orderByFilter', 'f
     function onFilteredPropValue(key) {
       return function onValue(value) {
         if (!angular.isObject(value) || !angular.isObject(scope[name] && scope[name][key])) {
-          if (angular.isUndefined(scope[name])) {
+          if (destroyed || angular.isUndefined(scope[name])) {
             // We got destroyed while waiting for the callback, ignore.
             return;
           }
@@ -917,6 +924,7 @@ this.$get = ['$interpolate', '$q', '$timeout', '$rootScope', 'orderByFilter', 'f
     }
 
     function invokeChange(type, path, key, value) {
+      if (destroyed) return;
       var parsed = fireHelpers.parsePath(name, path);
       var subscope = parsed(scope);
       switch(type) {
