@@ -167,6 +167,8 @@ this.$get = ['$interpolate', '$q', '$timeout', '$rootScope', 'orderByFilter', 'f
 
     if (!noWatch && scope.$watch && (pathInterpolator || viaPathInterpolator)) {
       scope.$watchGroup([pathInterpolator, viaPathInterpolator], function(paths) {
+        if (pathInterpolator && !(0 in paths)) return;
+        if (viaPathInterpolator && !(1 in paths)) return;
         paths[0] = prefixRoot(pathInterpolator ? paths[0] : path, noWatch);
         paths[1] = prefixRoot(viaPathInterpolator ? paths[1] : viaPath, noWatch);
         if (!(initialPaths && angular.equals(paths, initialPaths))) {
@@ -355,7 +357,7 @@ this.$get = ['$interpolate', '$q', '$timeout', '$rootScope', 'orderByFilter', 'f
       };
     }
 
-    var fire, fireDeferred = $q.defer();
+    var fire, readyDeferred = $q.defer();
     expandPath(args.pathScope || args.scope, path, viaPath, function(iPath, iViaPath) {
       if (fire) {
         fire.destroy();
@@ -371,7 +373,6 @@ this.$get = ['$interpolate', '$q', '$timeout', '$rootScope', 'orderByFilter', 'f
         fire[refName] = applyQuery(new Firebase(iPath));
         notifyWatchers(fire[refName]);
       } else if (connectionFlavor === 'once' && iPath) {
-        var readyDeferred = $q.defer();
         var myFire = fire = {
           destroy: angular.noop,
           isReady: false,
@@ -403,7 +404,10 @@ this.$get = ['$interpolate', '$q', '$timeout', '$rootScope', 'orderByFilter', 'f
             null, args.digest, args.onError, notifyWatchers);
         }
       }
-      if (fire) fireDeferred.resolve(fire);
+      if (fire) {
+        fire.ready().then(
+          function() {readyDeferred.resolve();}, function(e) {readyDeferred.reject(e);});
+      }
     });
 
     var handle = {
@@ -412,7 +416,7 @@ this.$get = ['$interpolate', '$q', '$timeout', '$rootScope', 'orderByFilter', 'f
         angular.forEach(watchers, function(watcher) {watcher.destroy();});
       },
       isReady: function() {return fire && fire.isReady;},
-      ready: function() {return fireDeferred.promise.then(function(fire) {return fire.ready();});},
+      ready: function() {return readyDeferred.promise;},
       allowedKeys: function() {return fire && fire.allowedKeys;}
     };
     if (args.scope.$on) args.scope.$on('$destroy', handle.destroy);
