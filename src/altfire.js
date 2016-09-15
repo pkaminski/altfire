@@ -801,13 +801,7 @@ this.$get = ['$interpolate', '$q', '$timeout', '$rootScope', 'orderByFilter', 'f
 
       var childRef = getRefFromPath(path);
       newValue = fireHelpers.fireCopy(newValue);
-
-      // Update objects instead of just setting (not sure why, angularFire does this so we do too)
-      if (angular.isObject(newValue) && !angular.isArray(newValue)) {
-        childRef.update(newValue, function(error) {if (error && onError) return onError(error);});
-      } else {
-        childRef.set(newValue, function(error) {if (error && onError) return onError(error);});
-      }
+      childRef.set(newValue, function(error) {if (error && onError) return onError(error);});
     }
 
     function setWhitelistedKey(key, isAllowed) {
@@ -823,27 +817,30 @@ this.$get = ['$interpolate', '$q', '$timeout', '$rootScope', 'orderByFilter', 'f
       }
     }
 
-    //listen to value on the top-level, if we have a primitive at the root
-    //Three cases in which we need to reassign the top level:
-    //1) if top level is a primitive (eg  1 to 2 or string to string)
-    //2) if top level was a primitive and now we are to object, reassign
-    //3) if top level was object and now we are to primitive, reassign
+    var rootValueSetToObject = false;
     function onRootValue(value) {
       if (destroyed) return;
-      if (!self.isReady) {
-        //First time value comes, merge it in and push it
+      var changed;
+      if (!angular.isObject(value) || !angular.isObject(scope[name])) {
+        changed = scope[name] !== value;
+        scope[name] = value;
+      } else if (!rootValueSetToObject) {
+        changed = true;
         scope[name] = fireHelpers.fireMerge(value, scope[name]);
+      }
+      if (!self.isReady) {
         setReady();
         if (connectionFlavor === 'bind') {
           self.ready().then(function() {
              onLocalChange([], scope[name]);
           });
         }
-      } else if (!angular.isObject(value) || !angular.isObject(scope[name])) {
-        scope[name] = value;
-        if (reporter) reporter.savedScope[name] = angular.copy(value);
       }
-      digest();
+      if (changed) {
+        rootValueSetToObject = angular.isObject(scope[name]);
+        if (reporter) reporter.savedScope[name] = angular.copy(scope[name]);
+        digest();
+      }
     }
 
     //listen to value for each filtered key. same rules as top level,
@@ -888,15 +885,17 @@ this.$get = ['$interpolate', '$q', '$timeout', '$rootScope', 'orderByFilter', 'f
       return pathRef;
     }
 
-    function firebaseBindRef(path, onValue) {
+    function firebaseBindRef(path, onValue, ignoreBackfill) {
       path = path || [];
       var watchRef = getRefFromPath(path);
 
       addListener(watchRef, 'child_added', function childAddedListener(snap) {
+        if (ignoreBackfill) return;
         invokeChange('child_added', path, snap.key(), function() {
           return normalizeSnapshotValue(snap, scope);
         });
       });
+      ignoreBackfill = false;
 
       addListener(watchRef, 'child_removed', function childRemovedListener(snap) {
         firebaseUnbindRef(path.concat(snap.key()));
@@ -937,8 +936,6 @@ this.$get = ['$interpolate', '$q', '$timeout', '$rootScope', 'orderByFilter', 'f
           if (reporter) fireHelpers.remove(parsed(reporter.savedScope), key);
           break;
         case 'child_added':
-          if (subscope && subscope.hasOwnProperty && subscope.hasOwnProperty(key)) return;
-          /* fall through */
         case 'child_changed':
           if (angular.isFunction(value)) value = value();
           fireHelpers.set(subscope, key, value);
@@ -955,7 +952,7 @@ this.$get = ['$interpolate', '$q', '$timeout', '$rootScope', 'orderByFilter', 'f
       if (!angular.isObject(newValue) || !angular.isObject(oldValue)) {
         if (newValue !== oldValue) {
           invokeChange('child_changed', path, key, newValue);
-          if (!hasListeners(getRefFromPath(path))) firebaseBindRef(path);
+          if (!hasListeners(getRefFromPath(path))) firebaseBindRef(path, undefined, true);
         }
       } else {
         // Copy newValue to oldValue and look for changes
