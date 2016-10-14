@@ -542,21 +542,27 @@ this.$get = ['$interpolate', '$q', '$timeout', '$rootScope', 'orderByFilter', 'f
   }
 
   Watcher.prototype.updateParentRef = function(ref) {
-    this.parentPath = ref && ref.toString() || null;
+    if (!ref.key && !angular.isUndefined(this.childPath)) {
+      throw new Error(
+        'Cannot watch a subpath of a query: ' + ref.ref().toString() + ', ' + this.childPath);
+    }
+    this.parentPath = ref && (ref.key ? ref.toString() : ref) || null;
     this.updateRef();
   };
 
   Watcher.prototype.updateRef = function() {
     var path;
-    if (this.childPath === null || this.parentPath === null) {
+    if (this.childPath === null || !this.parentPath) {
       path = null;
     } else {
       path = this.parentPath;
       if (this.childPath) path += '/' + this.childPath;
     }
-    if (path ? this.ref && this.ref.toString() === path : !this.ref) return;
+    if ((this.ref && (this.ref.key ? this.ref.toString() : this.ref) || null) === path) {
+      return;
+    }
     if (this.ref) this.unlisten();
-    this.ref = path ? new Firebase(path) : null;
+    this.ref = path ? (angular.isString(path) ? new Firebase(path) : path) : null;
     this.change = true;
     this.addedKeys = [];
     this.movedKeys = [];
@@ -710,29 +716,33 @@ this.$get = ['$interpolate', '$q', '$timeout', '$rootScope', 'orderByFilter', 'f
       if (!keepValue) delete scope[name];
     }
 
+    function getTargetName(target) {
+      return (target.ref ? target.ref() : target).toString();
+    }
+
     function addListener(target, event, callback) {
-      var targetName = target.toString();
+      var targetName = getTargetName(target);
       if (!listeners[targetName]) listeners[targetName] = {};
       if (!listeners[targetName][event]) listeners[targetName][event] = [];
-      listeners[targetName][event].push(callback);
+      listeners[targetName][event].push({target: target, callback: callback});
       target.on(event, callback, onError);
     }
 
     function removeListeners(target, andDescendants) {
-      target = target.toString();
-      var targets = [target];
+      var targetName = getTargetName(target);
+      var targetNames = [targetName];
       if (andDescendants) {
-        target += '/';
+        targetName += '/';
         angular.forEach(listeners, function(unused, key) {
-          if (key.slice(0, target.length) === target) targets.push(key);
+          if (key.slice(0, targetName.length) === targetName) targetNames.push(key);
         });
       }
-      angular.forEach(targets, function(key) {
+      angular.forEach(targetNames, function(key) {
         var events = listeners[key];
         if (!events) return;
-        angular.forEach(events, function(callbacks, event) {
-          angular.forEach(callbacks, function(callback) {
-            (new Firebase(key)).off(event, callback);
+        angular.forEach(events, function(entries, event) {
+          angular.forEach(entries, function(entry) {
+            entry.target.off(event, entry.callback);
           });
         });
         delete listeners[key];
@@ -740,7 +750,7 @@ this.$get = ['$interpolate', '$q', '$timeout', '$rootScope', 'orderByFilter', 'f
     }
 
     function hasListeners(target) {
-      return target.toString() in listeners;
+      return getTargetName(target) in listeners;
     }
 
     function setupFilterRef() {
