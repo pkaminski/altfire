@@ -513,6 +513,7 @@ this.$get = ['$interpolate', '$q', '$timeout', '$rootScope', 'orderByFilter', 'f
     this.onCollectionChange = watch.onCollectionChange;
     this.onError = onError;
     this.change = false;
+    this.valueExists = false;
     this.addedKeys = [];
     this.removedKeys = [];
     this.movedKeys = [];
@@ -556,7 +557,20 @@ this.$get = ['$interpolate', '$q', '$timeout', '$rootScope', 'orderByFilter', 'f
       path = null;
     } else {
       path = this.parentPath;
-      if (this.childPath) path += '/' + this.childPath;
+      if (this.childPath) {
+        var segments = path.split('/');
+        angular.forEach(this.childPath.split('/'), function(segment) {
+          if (segment === '..') {
+            if (!segments.length) {
+              throw new Error('Child path ends up above root: ' + this.childPath);
+            }
+            segments.pop();
+          } else {
+            segments.push(segment);
+          }
+        });
+        path = segments.join('/');
+      }
     }
     if ((this.ref && (this.ref.key ? this.ref.toString() : this.ref) || null) === path) {
       return;
@@ -564,6 +578,7 @@ this.$get = ['$interpolate', '$q', '$timeout', '$rootScope', 'orderByFilter', 'f
     if (this.ref) this.unlisten();
     this.ref = path ? (angular.isString(path) ? new Firebase(path) : path) : null;
     this.change = true;
+    this.valueExists = false;
     this.addedKeys = [];
     this.movedKeys = [];
     this.removedKeys = this.allKeys;
@@ -607,8 +622,9 @@ this.$get = ['$interpolate', '$q', '$timeout', '$rootScope', 'orderByFilter', 'f
     if (this.ref) this.unlisten();
   };
 
-  Watcher.prototype.valueChanged = function() {
+  Watcher.prototype.valueChanged = function(snap) {
     this.change = true;
+    this.valueExists = snap.exists();
     this.fireChangesAsync();
   };
 
@@ -646,7 +662,7 @@ this.$get = ['$interpolate', '$q', '$timeout', '$rootScope', 'orderByFilter', 'f
   Watcher.prototype.fireChanges = function fireWatcherChanges() {
     if (this.onChange && this.change) {
       this.change = false;
-      this.onChange();
+      this.onChange(this.valueExists);
     }
     if (this.onCollectionChange && (
         this.addedKeys.length || this.removedKeys.length || this.movedKeys.length)) {
