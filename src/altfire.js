@@ -598,6 +598,7 @@ this.$get = ['$interpolate', '$q', '$timeout', '$rootScope', 'orderByFilter', 'f
   };
 
   Watcher.prototype.refOn = function(eventType, callback) {
+    callback.omitSnapshotValue = true;
     if (this.onError) this.ref.on(eventType, callback, this.onError, this);
     else this.ref.on(eventType, callback, this);
   };
