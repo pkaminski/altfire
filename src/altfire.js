@@ -75,11 +75,7 @@ this.$get = ['$interpolate', '$q', '$timeout', '$rootScope', 'orderByFilter', 'f
   };
 
   function normalizeSnapshotValue(snap, scope) {
-    var value = normalizeSnapshotValueHelper(snap.ref().toString(), snap.key(), snap.val(), scope);
-    if (snap.hasChildren() && snap.getPriority() !== null) {
-      Object.defineProperty(value, '.priority', {value: snap.getPriority()});
-    }
-    return value;
+    return normalizeSnapshotValueHelper(snap.ref().toString(), snap.key(), snap.val(), scope);
   }
 
   function getRefChild(path) {
