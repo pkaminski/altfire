@@ -846,10 +846,10 @@ this.$get = ['$interpolate', '$q', '$timeout', '$rootScope', 'orderByFilter', 'f
       var changed;
       if (!angular.isObject(value) || !angular.isObject(scope[name])) {
         changed = scope[name] !== value;
-        scope[name] = value;
+        fireHelpers.set(scope, name, value);
       } else if (!rootValueSetToObject) {
         changed = true;
-        scope[name] = fireHelpers.fireMerge(value, scope[name]);
+        fireHelpers.set(scope, name, fireHelpers.fireMerge(value, scope[name]));
       }
       if (!self.isReady) {
         setReady();
@@ -875,7 +875,7 @@ this.$get = ['$interpolate', '$q', '$timeout', '$rootScope', 'orderByFilter', 'f
             // We got destroyed while waiting for the callback, ignore.
             return;
           }
-          scope[name][key] = value;
+          fireHelpers.set(scope[name], key, value);
           if (reporter) reporter.savedScope[name][key] = angular.copy(value);
           if (!self.isReady && Object.keys(self.allowedKeys).every(function(key) {
             return scope[name].hasOwnProperty(key);
@@ -912,12 +912,14 @@ this.$get = ['$interpolate', '$q', '$timeout', '$rootScope', 'orderByFilter', 'f
       path = path || [];
       var watchRef = getRefFromPath(path);
 
-      addListener(watchRef, 'child_added', function childAddedListener(snap) {
+      function childAddedListener(snap) {
         if (ignoreBackfill) return;
         invokeChange('child_added', path, snap.key(), function() {
           return normalizeSnapshotValue(snap, scope);
         });
-      });
+      }
+      childAddedListener.skipCurrent = ignoreBackfill;
+      addListener(watchRef, 'child_added', childAddedListener);
       ignoreBackfill = false;
 
       addListener(watchRef, 'child_removed', function childRemovedListener(snap) {
