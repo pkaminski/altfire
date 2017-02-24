@@ -1,6 +1,8 @@
 altfire
 =======
 
+[![Project Status: Unsupported - The project has reached a stable, usable state but the author(s) have ceased all work on it. A new maintainer may be desired.](http://www.repostatus.org/badges/latest/unsupported.svg)](http://www.repostatus.org/#unsupported)
+
 Alternative AngularJS bindings for Firebase, based on [ajoslin/angular-burn](github.com/ajoslin/angular-burn).  Not complete yet but offers the following advantages over the officially supported [AngularFire](https://github.com/firebase/angularFire):
 
 - **Minimal change propagation in both directions.**  When a deeply nested attribute is changed, either locally or remotely, only that branch of the model is propagated to the other side.  This helps minimize bandwidth and minimizes opportunities for collisions.
